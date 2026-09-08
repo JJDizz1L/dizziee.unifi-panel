@@ -39,6 +39,7 @@
       "notifyOnline": true,
       "notifyWan": true,
       "notifyPending": true,
+      "notifyFirmware": true,
       "notifyCooldownMin": 10
     },
     "schema": [
@@ -118,6 +119,12 @@
         "key": "notifyPending",
         "type": "boolean",
         "label": "Notify when a device waits for adoption",
+        "defaultValue": true
+      },
+      {
+        "key": "notifyFirmware",
+        "type": "boolean",
+        "label": "Notify when a firmware update becomes available",
         "defaultValue": true
       },
       {

@@ -122,6 +122,7 @@ Panel {
   readonly property bool notifyOnline: boolSetting("notifyOnline", true)
   readonly property bool notifyWan: boolSetting("notifyWan", true)
   readonly property bool notifyPending: boolSetting("notifyPending", true)
+  readonly property bool notifyFirmware: boolSetting("notifyFirmware", true)
   readonly property int notifyCooldownMs: intSetting("notifyCooldownMin", 10, 1, 240) * 60000
 
   // Qt.resolvedUrl yields a file:// URL; Process wants a plain path.
@@ -447,11 +448,19 @@ Panel {
   // widget starting up is not an event.
   function notificationFor(device, previous) {
     if (previous === undefined) return null
-    if (device.bucket === previous.bucket) return null
-    if (device.bucket === "offline" && notifyOffline)
-      return { urgency: "critical", body: stateLabel(device.state) }
-    if (device.bucket === "online" && previous.bucket === "offline" && notifyOnline)
-      return { urgency: "normal", body: "Back online" }
+    if (device.bucket !== previous.bucket) {
+      if (device.bucket === "offline" && notifyOffline)
+        return { urgency: "critical", body: stateLabel(device.state) }
+      if (device.bucket === "online" && previous.bucket === "offline" && notifyOnline)
+        return { urgency: "normal", body: "Back online" }
+    }
+    // A firmware update waiting is news however the device is doing — but
+    // only its appearance: an already-flagged device stays silent, and a
+    // device that just updated (flag cleared) is good news told nowhere.
+    // A state change in the same poll takes priority; the firmware notice
+    // follows on the next one.
+    if (device.firmwareUpdatable === true && previous.updatable !== true && notifyFirmware)
+      return { urgency: "normal", body: "Firmware update available" }
     return null
   }
 
@@ -463,7 +472,7 @@ Panel {
     for (var i = 0; i < devices.length; i++) {
       var device = devices[i]
       if (!device.id) continue
-      seen[device.id] = { bucket: device.bucket }
+      seen[device.id] = { bucket: device.bucket, updatable: device.firmwareUpdatable === true }
 
       var notification = notificationFor(device, lastSeenById[device.id])
       if (!notification) continue

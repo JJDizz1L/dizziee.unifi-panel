@@ -90,6 +90,7 @@ Under the widget's settings in the bar:
   cooldown
 - Notify when a WAN link goes down / recovers (same cooldown)
 - Notify when a device waits for adoption
+- Notify when a firmware update becomes available for a device
 
 Middle-click the icon, or press **R** in the panel, to refresh. IPC:
 `omarchy-shell dizziee.unifi-panel open|close|toggle|refresh`.

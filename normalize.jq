@@ -174,6 +174,8 @@ def health_clients:
 | (.pending // null) as $pending
 | (.wifi // null) as $wifi
 | (.networks // null) as $networks
+| (.vpnServers // null) as $vpn_servers
+| (.vpnTunnels // null) as $vpn_tunnels
 | {
     # ref is the classic-API reference as vetted by the fetch; the widget
     # hands it back on the next poll so the site lookup runs only once.
@@ -229,6 +231,24 @@ def health_clients:
         standard: (.["default"] // false)
       })) as $rows
       | {count: (as_number($networks.totalCount) // ($rows | length)), networks: $rows} end),
+    # VPN servers and site-to-site tunnels. The overviews carry no live
+    # status, so this is configuration only: names, types and (for servers)
+    # enabled state. Each side normalizes alone; the block is null only when
+    # both requests failed, so the widget keeps its last answer.
+    vpn: (
+      (if $vpn_servers == null then null else
+        ($vpn_servers.data // [] | map({
+          name: (.name // ""),
+          enabled: (.enabled // false),
+          type: (if (.type | type) == "string" then .type else "" end)
+        })) end) as $servers
+      | (if $vpn_tunnels == null then null else
+        ($vpn_tunnels.data // [] | map({
+          name: (.name // ""),
+          type: (if (.type | type) == "string" then .type else "" end)
+        })) end) as $tunnels
+      | if $servers == null and $tunnels == null then null
+        else {servers: ($servers // []), tunnels: ($tunnels // [])} end),
     summary: {
       devices: (if $device_total > 0 then $device_total else ($devices | length) end),
       online: ($devices | map(select(.bucket == "online")) | length),

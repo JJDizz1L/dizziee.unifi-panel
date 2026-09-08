@@ -86,6 +86,9 @@ Panel {
   // Networks ({count, networks} or null while unknown). Inventory only,
   // like WiFi: configuration, not events.
   property var networks: null
+  // VPN servers and tunnels ({servers, tunnels} or null while unknown).
+  // The overviews carry no live status, so this is configuration only.
+  property var vpn: null
 
   // --- settings ---------------------------------------------------------
 
@@ -108,6 +111,7 @@ Panel {
   readonly property bool showGatewayStats: boolSetting("showGatewayStats", true)
   readonly property bool showWifi: boolSetting("showWifi", true)
   readonly property bool showNetworks: boolSetting("showNetworks", true)
+  readonly property bool showVpn: boolSetting("showVpn", true)
   // Fast while the panel is open so the gateway's rates and load feel live:
   // the controller heartbeats every ~20 s, so most polls repeat the last
   // sample, but each is four small LAN requests (the report is cached).
@@ -249,6 +253,60 @@ Panel {
     return networks.count + (networks.count === 1 ? " network" : " networks")
   }
 
+  // The API's VPN type enum, shortened. Unknown values pass through raw —
+  // every text showing them sets PlainText, like the other controller data.
+  function vpnTypeLabel(vpnType) {
+    switch (vpnType) {
+      case "WIREGUARD": return "WireGuard"
+      case "OPENVPN": return "OpenVPN"
+      case "L2TP": return "L2TP"
+      case "PPTP": return "PPTP"
+      case "IPSEC": return "IPsec"
+      case "UID": return "UID"
+      default: return vpnType ? String(vpnType) : ""
+    }
+  }
+
+  readonly property int vpnRowCount: {
+    if (!vpn) return 0
+    return (vpn.servers ? vpn.servers.length : 0) + (vpn.tunnels ? vpn.tunnels.length : 0)
+  }
+
+  readonly property string vpnSummary: {
+    if (!vpn) return ""
+    var parts = []
+    var serverCount = vpn.servers ? vpn.servers.length : 0
+    var tunnelCount = vpn.tunnels ? vpn.tunnels.length : 0
+    if (serverCount > 0) parts.push(serverCount + (serverCount === 1 ? " server" : " servers"))
+    if (tunnelCount > 0) parts.push(tunnelCount + (tunnelCount === 1 ? " tunnel" : " tunnels"))
+    if (parts.length === 0) return ""
+    return "VPN  ·  " + parts.join("  ·  ")
+  }
+
+  // Servers first, then tunnels, as flat rows: {name, dimmed, detail}.
+  // A disabled server dims its name and reads Off; tunnels have no
+  // enabled flag in the overview, so their type names the row instead.
+  readonly property var vpnRows: {
+    var rows = []
+    if (!vpn) return rows
+    var servers = vpn.servers || []
+    for (var i = 0; i < servers.length; i++) {
+      var server = servers[i]
+      rows.push({ name: server.name || "Unnamed server",
+                  dimmed: !server.enabled,
+                  detail: server.enabled ? vpnTypeLabel(server.type) : "Off" })
+    }
+    var tunnels = vpn.tunnels || []
+    for (var j = 0; j < tunnels.length; j++) {
+      var tunnel = tunnels[j]
+      var label = vpnTypeLabel(tunnel.type)
+      rows.push({ name: tunnel.name || "Unnamed tunnel",
+                  dimmed: false,
+                  detail: label !== "" ? label + " tunnel" : "" })
+    }
+    return rows
+  }
+
   readonly property string tooltipSummary: {
     if (needsLogin) return "UniFi: not signed in"
     if (dataIsStale && lastUpdatedAt > 0)
@@ -359,6 +417,8 @@ Panel {
       wifi = parsed.wifi
     if (parsed && parsed.networks && typeof parsed.networks.count === "number")
       networks = parsed.networks
+    if (parsed && parsed.vpn && parsed.vpn.servers && parsed.vpn.tunnels)
+      vpn = parsed.vpn
     lastUpdatedAt = Date.now()
     recordRates()
 
@@ -987,6 +1047,67 @@ Panel {
               var shown = root.networks.networks ? Math.min(root.networks.networks.length, 8) : 0
               return "+" + (root.networks.count - shown) + " more"
             }
+            color: root.detailColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+        }
+
+        // VPN inventory: servers, then site-to-site tunnels. Configuration
+        // only — the overviews carry no live status. Rows are capped like
+        // the lists above; the header carries the full breakdown.
+        Column {
+          width: parent.width
+          spacing: Style.space(2)
+          visible: root.showVpn && root.initialized && !root.needsLogin && root.lastError === ""
+            && root.vpnSummary !== ""
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            text: root.vpnSummary
+            color: root.detailColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+
+          Repeater {
+            model: root.vpnRows.slice(0, 8)
+
+            Row {
+              id: vpnRow
+              required property var modelData
+              width: parent.width
+              spacing: Style.space(8)
+
+              Text {
+                textFormat: Text.PlainText
+                id: vpnName
+                width: parent.width - vpnDetail.implicitWidth - Style.space(8)
+                elide: Text.ElideRight
+                text: vpnRow.modelData.name
+                color: vpnRow.modelData.dimmed ? root.detailColor : Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                id: vpnDetail
+                text: vpnRow.modelData.detail
+                color: root.detailColor
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            // Evaluated even while hidden, so the null guard comes first.
+            visible: root.vpnRows.length > 8
+            text: "+" + (root.vpnRows.length - 8) + " more"
             color: root.detailColor
             font.family: Style.font.family
             font.pixelSize: Style.font.caption

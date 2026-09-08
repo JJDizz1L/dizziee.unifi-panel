@@ -96,6 +96,20 @@ if jq -e '.networks.count == 2 and .networks.networks[0].vlanId == 1
 else
   printf '  FAIL  passes networks through, null when unfetched\n'; (( failed++ ))
 fi
+# VPN servers and tunnels ride through side by side; one side missing still
+# yields the other, and both missing normalizes to null rather than empties.
+vpn_out=$(jq -f "$NORMALIZE" \
+  <<<'{"vpnServers":{"totalCount":1,"data":[{"name":"Home VPN","enabled":true,"type":"WIREGUARD"}]},"vpnTunnels":{"data":[{"name":"Office","type":"IPSEC"}]}}' 2>&1)
+if jq -e '.vpn.servers[0].name == "Home VPN" and .vpn.servers[0].enabled == true
+         and .vpn.tunnels[0].type == "IPSEC"' \
+     >/dev/null 2>&1 <<<"$vpn_out" \
+   && jq -f "$NORMALIZE" <<<'{"vpnServers":{"data":[]}}' |
+      jq -e '.vpn.servers == [] and .vpn.tunnels == []' >/dev/null 2>&1 \
+   && jq -f "$NORMALIZE" <<<'{}' | jq -e '.vpn == null' >/dev/null 2>&1; then
+  printf '  ok    passes VPN servers and tunnels through, null when unfetched\n'; (( passed++ ))
+else
+  printf '  FAIL  passes VPN servers and tunnels through, null when unfetched\n'; (( failed++ ))
+fi
 check "counts every device" network.json '.summary.devices == 5'
 check "counts online devices" network.json '.summary.online == 3'
 # CONNECTION_INTERRUPTED means the controller cannot hear the device; for the

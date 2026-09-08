@@ -232,6 +232,21 @@ if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2
   networks="$UNIFI_HTTP_BODY"
 fi
 
+# VPN servers and site-to-site tunnels: name, type and enabled state for the
+# panel's inventory section. The overview rows carry no live status, so this
+# is configuration only. Either request may fail alone; each side stands on
+# its own and the block is skipped only when both do.
+vpn_servers=null
+unifi_http "/sites/$site_id/vpn/servers?limit=25" "$API_KEY"
+if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
+  vpn_servers="$UNIFI_HTTP_BODY"
+fi
+vpn_tunnels=null
+unifi_http "/sites/$site_id/vpn/site-to-site-tunnels?limit=25" "$API_KEY"
+if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
+  vpn_tunnels="$UNIFI_HTTP_BODY"
+fi
+
 fetch_all "/sites/$site_id/devices" "$MAX_DEVICES"
 devices="$FETCHED"
 device_total=$FETCH_OVERFLOW
@@ -343,9 +358,11 @@ unset API_KEY
 # passed along so the oversized view can link to the real device list.
 jq --argjson stats "$stats" --argjson report "$report" --argjson wans "$wans" --argjson health "$health" \
   --argjson info "$info" --argjson pending "$pending" --argjson wifi "$wifi" \
-  --argjson networks "$networks" \
+  --argjson networks "$networks" --argjson vpn_servers "$vpn_servers" \
+  --argjson vpn_tunnels "$vpn_tunnels" \
   --arg siteRef "$site_name" --arg controllerUrl "$UNIFI_URL" \
   '. + {stats: $stats, report: $report, wans: $wans, health: $health, info: $info,
-        pending: $pending, wifi: $wifi, networks: $networks, siteRef: $siteRef,
+        pending: $pending, wifi: $wifi, networks: $networks,
+        vpnServers: $vpn_servers, vpnTunnels: $vpn_tunnels, siteRef: $siteRef,
         controllerUrl: $controllerUrl}' <<<"$raw" |
   jq -f "$NORMALIZE" 2>/dev/null || die "Could not interpret the controller response"

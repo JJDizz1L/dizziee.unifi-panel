@@ -31,6 +31,7 @@
       "showGatewayStats": true,
       "showWifi": true,
       "showNetworks": true,
+      "showVpn": true,
       "refreshIntervalSec": 5,
       "watch": true,
       "watchIntervalSec": 120,
@@ -63,6 +64,12 @@
         "key": "showNetworks",
         "type": "boolean",
         "label": "Show networks with their VLAN ids in the panel",
+        "defaultValue": true
+      },
+      {
+        "key": "showVpn",
+        "type": "boolean",
+        "label": "Show VPN servers and tunnels in the panel",
         "defaultValue": true
       },
       {

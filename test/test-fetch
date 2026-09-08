@@ -91,6 +91,14 @@ class H(BaseHTTPRequestHandler):
                 {"name": "Guest", "vlanId": 20, "enabled": False,
                  "management": "GATEWAY", "default": False}],
                 "totalCount": 2})
+        if p.endswith("/vpn/servers"):
+            return self._send(200, {"data": [
+                {"name": "Home VPN", "enabled": True, "type": "WIREGUARD"}],
+                "totalCount": 1})
+        if p.endswith("/vpn/site-to-site-tunnels"):
+            return self._send(200, {"data": [
+                {"name": "Office", "type": "IPSEC"}],
+                "totalCount": 1})
         if p.endswith("/stat/health"):
             return self._send(200, {"data": [
                 {"subsystem": "wlan", "num_user": 9, "num_guest": 0, "num_iot": 1},
@@ -192,6 +200,8 @@ if jq -e '.error == null and (.site.name | length > 0) and .site.ref == "default
    && jq -e '.networks.count == 2 and .networks.networks[0].vlanId == 1
              and .networks.networks[0].standard == true
              and .networks.networks[1].enabled == false' >/dev/null 2>&1 <<<"$out" \
+   && jq -e '.vpn.servers[0].type == "WIREGUARD"
+             and .vpn.tunnels[0].name == "Office"' >/dev/null 2>&1 <<<"$out" \
    && (( $(grep -cF 'sites?' "$work/requests") == 1 )) \
    && ! grep -q clients "$work/requests"; then
   ok "renders the fixture; a poll handed the site skips the lookup"

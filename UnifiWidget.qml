@@ -70,6 +70,8 @@ Panel {
   // like last poll, so only genuine transitions announce themselves.
   property var lastSeenById: ({})
   property var notifiedAt: ({})
+  // WAN link states keyed by link key, mirroring lastSeenById for devices.
+  property var lastWanByKey: ({})
 
   // --- settings ---------------------------------------------------------
 
@@ -98,6 +100,7 @@ Panel {
   readonly property int watchIntervalMs: intSetting("watchIntervalSec", 120, 30, 3600) * 1000
   readonly property bool notifyOffline: boolSetting("notifyOffline", true)
   readonly property bool notifyOnline: boolSetting("notifyOnline", true)
+  readonly property bool notifyWan: boolSetting("notifyWan", true)
   readonly property int notifyCooldownMs: intSetting("notifyCooldownMin", 10, 1, 240) * 60000
 
   // Qt.resolvedUrl yields a file:// URL; Process wants a plain path.
@@ -289,6 +292,7 @@ Panel {
     recordRates()
 
     evaluateNotifications()
+    evaluateWanNotifications()
   }
 
   function recordRates() {
@@ -340,6 +344,50 @@ Panel {
     }
 
     lastSeenById = seen
+    notifiedAt = stamps
+  }
+
+  // WAN link transitions worth announcing: up<->down only. Anything involving
+  // "unused" is setup noise rather than an outage — a port with nothing ever
+  // plugged in, or a just-rebooted gateway whose uptime makes every link look
+  // fresh — so it never notifies, whichever direction it moves.
+  function wanNotificationFor(link, previous) {
+    if (!notifyWan) return null
+    if (previous === undefined || link.state === previous) return null
+    if (link.state === "down" && previous === "up")
+      return { urgency: "critical", body: "WAN link down" }
+    if (link.state === "up" && previous === "down")
+      return { urgency: "normal", body: "WAN link back up" }
+    return null
+  }
+
+  function evaluateWanNotifications() {
+    var links = (gateway && gateway.wan && gateway.wan.links) ? gateway.wan.links : []
+    var seen = {}
+    var stamps = notifiedAt
+    var now = Date.now()
+
+    for (var i = 0; i < links.length; i++) {
+      var link = links[i]
+      if (!link.key) continue
+      seen[link.key] = link.state
+
+      var notification = wanNotificationFor(link, lastWanByKey[link.key])
+      if (!notification) continue
+
+      // Shares the device cooldown map under a prefixed key: one setting,
+      // one throttle for every announcement this widget makes.
+      var stampKey = "wan:" + link.key
+      var last = stamps[stampKey] || 0
+      if (now - last < notifyCooldownMs) continue
+      stamps[stampKey] = now
+
+      // Link names are controller data: same dash-guard as device names.
+      notify(notificationArg(link.name || link.key, "WAN link"),
+             notificationArg(notification.body, ""))
+    }
+
+    lastWanByKey = seen
     notifiedAt = stamps
   }
 

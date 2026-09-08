@@ -83,6 +83,7 @@ Under the widget's settings in the bar:
 - Refresh interval while the panel is open, and the background poll interval
 - Notify when a device goes offline / comes back online, with a per-device
   cooldown
+- Notify when a WAN link goes down / recovers (same cooldown)
 
 Middle-click the icon, or press **R** in the panel, to refresh. IPC:
 `omarchy-shell dizziee.unifi-panel open|close|toggle|refresh`.

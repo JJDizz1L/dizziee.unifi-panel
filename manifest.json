@@ -34,6 +34,7 @@
       "watchIntervalSec": 120,
       "notifyOffline": true,
       "notifyOnline": true,
+      "notifyWan": true,
       "notifyCooldownMin": 10
     },
     "schema": [
@@ -83,6 +84,12 @@
         "key": "notifyOnline",
         "type": "boolean",
         "label": "Notify when a device comes back online",
+        "defaultValue": true
+      },
+      {
+        "key": "notifyWan",
+        "type": "boolean",
+        "label": "Notify when a WAN link goes down or recovers",
         "defaultValue": true
       },
       {

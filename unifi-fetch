@@ -216,6 +216,14 @@ if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2
   pending="$UNIFI_HTTP_BODY"
 fi
 
+# WiFi broadcasts (SSIDs): name, enabled state and security for the panel's
+# inventory section. Few rows on any site; a failure here is never fatal.
+wifi=null
+unifi_http "/sites/$site_id/wifi/broadcasts?limit=25" "$API_KEY"
+if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
+  wifi="$UNIFI_HTTP_BODY"
+fi
+
 fetch_all "/sites/$site_id/devices" "$MAX_DEVICES"
 devices="$FETCHED"
 device_total=$FETCH_OVERFLOW
@@ -326,8 +334,9 @@ unset API_KEY
 # the controller's raw string. The controller URL is the user's own config,
 # passed along so the oversized view can link to the real device list.
 jq --argjson stats "$stats" --argjson report "$report" --argjson wans "$wans" --argjson health "$health" \
-  --argjson info "$info" --argjson pending "$pending" \
+  --argjson info "$info" --argjson pending "$pending" --argjson wifi "$wifi" \
   --arg siteRef "$site_name" --arg controllerUrl "$UNIFI_URL" \
   '. + {stats: $stats, report: $report, wans: $wans, health: $health, info: $info,
-        pending: $pending, siteRef: $siteRef, controllerUrl: $controllerUrl}' <<<"$raw" |
+        pending: $pending, wifi: $wifi, siteRef: $siteRef,
+        controllerUrl: $controllerUrl}' <<<"$raw" |
   jq -f "$NORMALIZE" 2>/dev/null || die "Could not interpret the controller response"

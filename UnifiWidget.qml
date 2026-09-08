@@ -79,6 +79,10 @@ Panel {
   // and the count at the last poll so only genuine arrivals announce.
   property var pending: null
   property int lastPendingCount: -1
+  // WiFi broadcasts ({count, networks} or null while unknown). Inventory
+  // only: networks appear and disappear by configuration, which is not
+  // an event worth announcing.
+  property var wifi: null
 
   // --- settings ---------------------------------------------------------
 
@@ -99,6 +103,7 @@ Panel {
 
   readonly property bool showBarClients: boolSetting("showBarClients", false)
   readonly property bool showGatewayStats: boolSetting("showGatewayStats", true)
+  readonly property bool showWifi: boolSetting("showWifi", true)
   // Fast while the panel is open so the gateway's rates and load feel live:
   // the controller heartbeats every ~20 s, so most polls repeat the last
   // sample, but each is four small LAN requests (the report is cached).
@@ -198,12 +203,32 @@ Panel {
     return String(summary.clients)
   }
 
+  // The API's security enum, shortened. Unknown values pass through raw —
+  // every text showing them sets PlainText, like the other controller data.
+  function wifiSecurityLabel(security) {
+    switch (security) {
+      case "OPEN": return "Open"
+      case "WPA2_PERSONAL": return "WPA2"
+      case "WPA3_PERSONAL": return "WPA3"
+      case "WPA2_WPA3_PERSONAL": return "WPA2/WPA3"
+      case "WPA2_ENTERPRISE": return "WPA2 Enterprise"
+      case "WPA3_ENTERPRISE": return "WPA3 Enterprise"
+      case "WPA2_WPA3_ENTERPRISE": return "WPA2/WPA3 Enterprise"
+      default: return security ? String(security) : ""
+    }
+  }
+
   // Short claim about devices waiting for adoption, or "" when there are
   // none known. Shared by the tooltip and the panel section header.
   readonly property string pendingSummary: {
     if (!pending || !(pending.count > 0)) return ""
     return pending.count + (pending.count === 1 ? " device" : " devices")
       + " waiting for adoption"
+  }
+
+  readonly property string wifiSummary: {
+    if (!wifi || !(wifi.count > 0)) return ""
+    return wifi.count + (wifi.count === 1 ? " WiFi network" : " WiFi networks")
   }
 
   readonly property string tooltipSummary: {
@@ -312,6 +337,8 @@ Panel {
     // failed request would announce every pending device as new on recovery.
     if (parsed && parsed.pending && typeof parsed.pending.count === "number")
       pending = parsed.pending
+    if (parsed && parsed.wifi && typeof parsed.wifi.count === "number")
+      wifi = parsed.wifi
     lastUpdatedAt = Date.now()
     recordRates()
 
@@ -799,6 +826,77 @@ Panel {
               if (!root.pending || typeof root.pending.count !== "number") return ""
               var shown = root.pending.devices ? Math.min(root.pending.devices.length, 5) : 0
               return "+" + (root.pending.count - shown) + " more"
+            }
+            color: root.detailColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+        }
+
+        // WiFi inventory: every broadcast with its security, or Off when
+        // disabled. Rows are capped like the pending list; the header
+        // carries the controller's full count either way.
+        Column {
+          width: parent.width
+          spacing: Style.space(2)
+          visible: root.showWifi && root.initialized && !root.needsLogin && root.lastError === ""
+            && root.wifiSummary !== ""
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            text: root.wifiSummary
+            color: root.detailColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+
+          Repeater {
+            model: root.wifi && root.wifi.networks
+              ? root.wifi.networks.slice(0, 8) : []
+
+            Row {
+              id: wifiRow
+              required property var modelData
+              width: parent.width
+              spacing: Style.space(8)
+
+              Text {
+                textFormat: Text.PlainText
+                id: wifiName
+                width: parent.width - wifiDetail.implicitWidth - Style.space(8)
+                elide: Text.ElideRight
+                text: (wifiRow.modelData.name !== "" ? wifiRow.modelData.name : "Unnamed network")
+                  + (wifiRow.modelData.iot ? "  ·  IoT" : "")
+                color: wifiRow.modelData.enabled ? Color.popups.text : root.detailColor
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                id: wifiDetail
+                text: wifiRow.modelData.enabled ? root.wifiSecurityLabel(wifiRow.modelData.security) : "Off"
+                color: root.detailColor
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            // Evaluated even while hidden, so the null guard comes first.
+            visible: {
+              if (!root.wifi || typeof root.wifi.count !== "number") return false
+              var shown = root.wifi.networks ? Math.min(root.wifi.networks.length, 8) : 0
+              return root.wifi.count > shown
+            }
+            text: {
+              if (!root.wifi || typeof root.wifi.count !== "number") return ""
+              var shown = root.wifi.networks ? Math.min(root.wifi.networks.length, 8) : 0
+              return "+" + (root.wifi.count - shown) + " more"
             }
             color: root.detailColor
             font.family: Style.font.family

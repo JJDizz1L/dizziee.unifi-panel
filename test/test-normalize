@@ -67,6 +67,21 @@ if jq -e '.pending.count == 2 and .pending.devices[0].ip == "1.2.3.4"
 else
   printf '  FAIL  passes pending devices through, null when unfetched\n'; (( failed++ ))
 fi
+# WiFi broadcasts ride through as the controller's count plus one row per
+# SSID; a missing security enum renders empty, and no request at all
+# normalizes to null rather than an empty block.
+wifi_out=$(jq -f "$NORMALIZE" \
+  <<<'{"wifi":{"totalCount":2,"data":[{"name":"Home","enabled":true,"securityConfiguration":{"type":"WPA3_PERSONAL"},"type":"STANDARD"},{"name":"Guest","enabled":false}]}}' 2>&1)
+if jq -e '.wifi.count == 2 and .wifi.networks[0].security == "WPA3_PERSONAL"
+         and .wifi.networks[0].iot == false
+         and .wifi.networks[1].enabled == false
+         and .wifi.networks[1].security == ""' \
+     >/dev/null 2>&1 <<<"$wifi_out" \
+   && jq -f "$NORMALIZE" <<<'{}' | jq -e '.wifi == null' >/dev/null 2>&1; then
+  printf '  ok    passes WiFi broadcasts through, null when unfetched\n'; (( passed++ ))
+else
+  printf '  FAIL  passes WiFi broadcasts through, null when unfetched\n'; (( failed++ ))
+fi
 check "counts every device" network.json '.summary.devices == 5'
 check "counts online devices" network.json '.summary.online == 3'
 # CONNECTION_INTERRUPTED means the controller cannot hear the device; for the

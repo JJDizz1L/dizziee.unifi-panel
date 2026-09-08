@@ -77,6 +77,13 @@ class H(BaseHTTPRequestHandler):
                  "ipAddress": "192.168.1.9", "state": "PENDING_ADOPTION",
                  "features": ["accessPoint"]}],
                 "totalCount": 1})
+        if p.endswith("/wifi/broadcasts"):
+            return self._send(200, {"data": [
+                {"name": "Home", "enabled": True, "type": "STANDARD",
+                 "securityConfiguration": {"type": "WPA3_PERSONAL"}},
+                {"name": "Guest", "enabled": False, "type": "STANDARD",
+                 "securityConfiguration": {"type": "OPEN"}}],
+                "totalCount": 2})
         if p.endswith("/stat/health"):
             return self._send(200, {"data": [
                 {"subsystem": "wlan", "num_user": 9, "num_guest": 0, "num_iot": 1},
@@ -173,6 +180,8 @@ if jq -e '.error == null and (.site.name | length > 0) and .site.ref == "default
    && jq -e '.networkVersion == "10.6.101"' >/dev/null 2>&1 <<<"$out" \
    && jq -e '.pending.count == 1 and .pending.devices[0].model == "U6-Lite"
              and .pending.devices[0].ip == "192.168.1.9"' >/dev/null 2>&1 <<<"$out" \
+   && jq -e '.wifi.count == 2 and .wifi.networks[0].security == "WPA3_PERSONAL"
+             and .wifi.networks[1].enabled == false' >/dev/null 2>&1 <<<"$out" \
    && (( $(grep -cF 'sites?' "$work/requests") == 1 )) \
    && ! grep -q clients "$work/requests"; then
   ok "renders the fixture; a poll handed the site skips the lookup"

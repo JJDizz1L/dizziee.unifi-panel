@@ -172,6 +172,7 @@ def health_clients:
 | (as_number(.deviceTotal) // 0) as $device_total
 | (health_clients // {clients: null, wireless: null, wired: null}) as $hc
 | (.pending // null) as $pending
+| (.wifi // null) as $wifi
 | {
     # ref is the classic-API reference as vetted by the fetch; the widget
     # hands it back on the next poll so the site lookup runs only once.
@@ -203,6 +204,18 @@ def health_clients:
         ip: (.ipAddress // "")
       })) as $rows
       | {count: (as_number($pending.totalCount) // ($rows | length)), devices: $rows} end),
+    # WiFi broadcasts from /v1/sites/<id>/wifi/broadcasts. Security is the
+    # API's raw enum (OPEN, WPA3_PERSONAL, …); the panel shortens it.
+    # Null when the request failed, so the widget keeps its last answer.
+    wifi: (if $wifi == null then null else
+      ($wifi.data // [] | map({
+        name: (.name // ""),
+        enabled: (.enabled // false),
+        security: (if (.securityConfiguration.type | type) == "string"
+                   then .securityConfiguration.type else "" end),
+        iot: ((.type // "") == "IOT_OPTIMIZED")
+      })) as $rows
+      | {count: (as_number($wifi.totalCount) // ($rows | length)), networks: $rows} end),
     summary: {
       devices: (if $device_total > 0 then $device_total else ($devices | length) end),
       online: ($devices | map(select(.bucket == "online")) | length),

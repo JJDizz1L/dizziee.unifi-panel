@@ -2,7 +2,8 @@
 
 Watch your UniFi network from the Omarchy bar: every access point, switch and
 gateway on a site with its online state, model, address and how many clients
-hang off it, plus wired/wireless client totals. The bar icon carries a badge
+hang off it, plus wired/wireless client totals, the site's WiFi networks
+with their security, and devices still waiting for adoption. The bar icon carries a badge
 with the number of offline devices, and a notification fires when a device
 drops or comes back. Under the gateway it shows what is flowing through the
 WAN — download and upload right now, each with a graph of the last twelve
@@ -80,6 +81,7 @@ Under the widget's settings in the bar:
 
 - Show the connected client count on the bar icon
 - Show the gateway's WAN graph, CPU, memory and uptime
+- Show WiFi networks with their security in the panel
 - Refresh interval while the panel is open, and the background poll interval
 - Notify when a device goes offline / comes back online, with a per-device
   cooldown

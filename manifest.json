@@ -29,6 +29,7 @@
     "defaults": {
       "showBarClients": false,
       "showGatewayStats": true,
+      "showWifi": true,
       "refreshIntervalSec": 5,
       "watch": true,
       "watchIntervalSec": 120,
@@ -49,6 +50,12 @@
         "key": "showGatewayStats",
         "type": "boolean",
         "label": "Show the gateway's WAN graph, CPU, memory and uptime",
+        "defaultValue": true
+      },
+      {
+        "key": "showWifi",
+        "type": "boolean",
+        "label": "Show WiFi networks with their security in the panel",
         "defaultValue": true
       },
       {

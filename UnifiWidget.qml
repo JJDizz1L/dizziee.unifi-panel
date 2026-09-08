@@ -83,6 +83,9 @@ Panel {
   // only: networks appear and disappear by configuration, which is not
   // an event worth announcing.
   property var wifi: null
+  // Networks ({count, networks} or null while unknown). Inventory only,
+  // like WiFi: configuration, not events.
+  property var networks: null
 
   // --- settings ---------------------------------------------------------
 
@@ -104,6 +107,7 @@ Panel {
   readonly property bool showBarClients: boolSetting("showBarClients", false)
   readonly property bool showGatewayStats: boolSetting("showGatewayStats", true)
   readonly property bool showWifi: boolSetting("showWifi", true)
+  readonly property bool showNetworks: boolSetting("showNetworks", true)
   // Fast while the panel is open so the gateway's rates and load feel live:
   // the controller heartbeats every ~20 s, so most polls repeat the last
   // sample, but each is four small LAN requests (the report is cached).
@@ -231,6 +235,20 @@ Panel {
     return wifi.count + (wifi.count === 1 ? " WiFi network" : " WiFi networks")
   }
 
+  // Gateway-managed, switch-managed or unmanaged; default network tagged.
+  function networkDetailLabel(net) {
+    var parts = []
+    if (net.standard) parts.push("default")
+    if (net.vlanId !== null && net.vlanId !== undefined) parts.push("VLAN " + net.vlanId)
+    if (!net.enabled) parts.push("Off")
+    return parts.join("  ·  ")
+  }
+
+  readonly property string networksSummary: {
+    if (!networks || !(networks.count > 0)) return ""
+    return networks.count + (networks.count === 1 ? " network" : " networks")
+  }
+
   readonly property string tooltipSummary: {
     if (needsLogin) return "UniFi: not signed in"
     if (dataIsStale && lastUpdatedAt > 0)
@@ -339,6 +357,8 @@ Panel {
       pending = parsed.pending
     if (parsed && parsed.wifi && typeof parsed.wifi.count === "number")
       wifi = parsed.wifi
+    if (parsed && parsed.networks && typeof parsed.networks.count === "number")
+      networks = parsed.networks
     lastUpdatedAt = Date.now()
     recordRates()
 
@@ -897,6 +917,75 @@ Panel {
               if (!root.wifi || typeof root.wifi.count !== "number") return ""
               var shown = root.wifi.networks ? Math.min(root.wifi.networks.length, 8) : 0
               return "+" + (root.wifi.count - shown) + " more"
+            }
+            color: root.detailColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+        }
+
+        // Networks inventory: every network with its VLAN id. Rows are
+        // capped like the lists above; the header carries the full count.
+        Column {
+          width: parent.width
+          spacing: Style.space(2)
+          visible: root.showNetworks && root.initialized && !root.needsLogin && root.lastError === ""
+            && root.networksSummary !== ""
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            text: root.networksSummary
+            color: root.detailColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+
+          Repeater {
+            model: root.networks && root.networks.networks
+              ? root.networks.networks.slice(0, 8) : []
+
+            Row {
+              id: networkRow
+              required property var modelData
+              width: parent.width
+              spacing: Style.space(8)
+
+              Text {
+                textFormat: Text.PlainText
+                id: networkName
+                width: parent.width - networkDetail.implicitWidth - Style.space(8)
+                elide: Text.ElideRight
+                text: networkRow.modelData.name !== "" ? networkRow.modelData.name : "Unnamed network"
+                color: networkRow.modelData.enabled ? Color.popups.text : root.detailColor
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                id: networkDetail
+                text: root.networkDetailLabel(networkRow.modelData)
+                color: root.detailColor
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            // Evaluated even while hidden, so the null guard comes first.
+            visible: {
+              if (!root.networks || typeof root.networks.count !== "number") return false
+              var shown = root.networks.networks ? Math.min(root.networks.networks.length, 8) : 0
+              return root.networks.count > shown
+            }
+            text: {
+              if (!root.networks || typeof root.networks.count !== "number") return ""
+              var shown = root.networks.networks ? Math.min(root.networks.networks.length, 8) : 0
+              return "+" + (root.networks.count - shown) + " more"
             }
             color: root.detailColor
             font.family: Style.font.family

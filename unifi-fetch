@@ -224,6 +224,14 @@ if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2
   wifi="$UNIFI_HTTP_BODY"
 fi
 
+# Networks (VLANs): name, VLAN id and state for the panel's inventory
+# section. Few rows on any site; a failure here is never fatal.
+networks=null
+unifi_http "/sites/$site_id/networks?limit=25" "$API_KEY"
+if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
+  networks="$UNIFI_HTTP_BODY"
+fi
+
 fetch_all "/sites/$site_id/devices" "$MAX_DEVICES"
 devices="$FETCHED"
 device_total=$FETCH_OVERFLOW
@@ -335,8 +343,9 @@ unset API_KEY
 # passed along so the oversized view can link to the real device list.
 jq --argjson stats "$stats" --argjson report "$report" --argjson wans "$wans" --argjson health "$health" \
   --argjson info "$info" --argjson pending "$pending" --argjson wifi "$wifi" \
+  --argjson networks "$networks" \
   --arg siteRef "$site_name" --arg controllerUrl "$UNIFI_URL" \
   '. + {stats: $stats, report: $report, wans: $wans, health: $health, info: $info,
-        pending: $pending, wifi: $wifi, siteRef: $siteRef,
+        pending: $pending, wifi: $wifi, networks: $networks, siteRef: $siteRef,
         controllerUrl: $controllerUrl}' <<<"$raw" |
   jq -f "$NORMALIZE" 2>/dev/null || die "Could not interpret the controller response"

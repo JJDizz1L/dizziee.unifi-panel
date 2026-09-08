@@ -173,6 +173,7 @@ def health_clients:
 | (health_clients // {clients: null, wireless: null, wired: null}) as $hc
 | (.pending // null) as $pending
 | (.wifi // null) as $wifi
+| (.networks // null) as $networks
 | {
     # ref is the classic-API reference as vetted by the fetch; the widget
     # hands it back on the next poll so the site lookup runs only once.
@@ -216,6 +217,18 @@ def health_clients:
         iot: ((.type // "") == "IOT_OPTIMIZED")
       })) as $rows
       | {count: (as_number($wifi.totalCount) // ($rows | length)), networks: $rows} end),
+    # Networks from /v1/sites/<id>/networks. Management is the API's raw enum
+    # (GATEWAY, SWITCH, UNMANAGED); the panel shortens it. Null when the
+    # request failed, so the widget keeps its last answer.
+    networks: (if $networks == null then null else
+      ($networks.data // [] | map({
+        name: (.name // ""),
+        vlanId: as_number(.vlanId),
+        enabled: (.enabled // false),
+        management: (if (.management | type) == "string" then .management else "" end),
+        standard: (.["default"] // false)
+      })) as $rows
+      | {count: (as_number($networks.totalCount) // ($rows | length)), networks: $rows} end),
     summary: {
       devices: (if $device_total > 0 then $device_total else ($devices | length) end),
       online: ($devices | map(select(.bucket == "online")) | length),

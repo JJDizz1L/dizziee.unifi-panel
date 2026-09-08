@@ -82,6 +82,20 @@ if jq -e '.wifi.count == 2 and .wifi.networks[0].security == "WPA3_PERSONAL"
 else
   printf '  FAIL  passes WiFi broadcasts through, null when unfetched\n'; (( failed++ ))
 fi
+# Networks ride through as the controller's count plus one row per network;
+# a missing VLAN id stays null, and no request at all normalizes to null.
+networks_out=$(jq -f "$NORMALIZE" \
+  <<<'{"networks":{"totalCount":2,"data":[{"name":"Default","vlanId":1,"enabled":true,"management":"GATEWAY","default":true},{"name":"Guest","enabled":false}]}}' 2>&1)
+if jq -e '.networks.count == 2 and .networks.networks[0].vlanId == 1
+         and .networks.networks[0].standard == true
+         and .networks.networks[1].enabled == false
+         and .networks.networks[1].vlanId == null' \
+     >/dev/null 2>&1 <<<"$networks_out" \
+   && jq -f "$NORMALIZE" <<<'{}' | jq -e '.networks == null' >/dev/null 2>&1; then
+  printf '  ok    passes networks through, null when unfetched\n'; (( passed++ ))
+else
+  printf '  FAIL  passes networks through, null when unfetched\n'; (( failed++ ))
+fi
 check "counts every device" network.json '.summary.devices == 5'
 check "counts online devices" network.json '.summary.online == 3'
 # CONNECTION_INTERRUPTED means the controller cannot hear the device; for the

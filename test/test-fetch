@@ -84,6 +84,13 @@ class H(BaseHTTPRequestHandler):
                 {"name": "Guest", "enabled": False, "type": "STANDARD",
                  "securityConfiguration": {"type": "OPEN"}}],
                 "totalCount": 2})
+        if p.endswith("/networks"):
+            return self._send(200, {"data": [
+                {"name": "Default", "vlanId": 1, "enabled": True,
+                 "management": "GATEWAY", "default": True},
+                {"name": "Guest", "vlanId": 20, "enabled": False,
+                 "management": "GATEWAY", "default": False}],
+                "totalCount": 2})
         if p.endswith("/stat/health"):
             return self._send(200, {"data": [
                 {"subsystem": "wlan", "num_user": 9, "num_guest": 0, "num_iot": 1},
@@ -182,6 +189,9 @@ if jq -e '.error == null and (.site.name | length > 0) and .site.ref == "default
              and .pending.devices[0].ip == "192.168.1.9"' >/dev/null 2>&1 <<<"$out" \
    && jq -e '.wifi.count == 2 and .wifi.networks[0].security == "WPA3_PERSONAL"
              and .wifi.networks[1].enabled == false' >/dev/null 2>&1 <<<"$out" \
+   && jq -e '.networks.count == 2 and .networks.networks[0].vlanId == 1
+             and .networks.networks[0].standard == true
+             and .networks.networks[1].enabled == false' >/dev/null 2>&1 <<<"$out" \
    && (( $(grep -cF 'sites?' "$work/requests") == 1 )) \
    && ! grep -q clients "$work/requests"; then
   ok "renders the fixture; a poll handed the site skips the lookup"

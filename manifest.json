@@ -30,6 +30,7 @@
       "showBarClients": false,
       "showGatewayStats": true,
       "showWifi": true,
+      "showNetworks": true,
       "refreshIntervalSec": 5,
       "watch": true,
       "watchIntervalSec": 120,
@@ -56,6 +57,12 @@
         "key": "showWifi",
         "type": "boolean",
         "label": "Show WiFi networks with their security in the panel",
+        "defaultValue": true
+      },
+      {
+        "key": "showNetworks",
+        "type": "boolean",
+        "label": "Show networks with their VLAN ids in the panel",
         "defaultValue": true
       },
       {

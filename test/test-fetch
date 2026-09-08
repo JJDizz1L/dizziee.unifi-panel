@@ -69,6 +69,8 @@ class H(BaseHTTPRequestHandler):
         p = self.path.split("?")[0]
         if p.endswith("/sites"):
             return self._send(200, {"data": sites, "totalCount": len(sites)})
+        if p.endswith("/info"):
+            return self._send(200, {"applicationVersion": "10.6.101"})
         if p.endswith("/stat/health"):
             return self._send(200, {"data": [
                 {"subsystem": "wlan", "num_user": 9, "num_guest": 0, "num_iot": 1},
@@ -138,6 +140,8 @@ start_stub() { # sites-json [mode]
   # would have planted it at setup.
   printf 'url=http://127.0.0.1:%s/integration/v1\nsite=%s\ninsecure=0\n' \
     "$port" "$(jq -r '.[0].id // ""' <<<"$1")" >"$XDG_STATE_HOME/omarchy/unifi/config"
+  # Each case starts with a cold version cache so its /info request is its own.
+  rm -f "$XDG_RUNTIME_DIR/omarchy-unifi/version.json"
 }
 
 stop_stub() {
@@ -160,6 +164,7 @@ out2=$("$PLUGIN_DIR/unifi-fetch" \
 if jq -e '.error == null and (.site.name | length > 0) and .site.ref == "default"' >/dev/null 2>&1 <<<"$out" \
    && jq -e '.error == null and .site.ref == "default" and .site.name == ""
              and .summary.devices == 5' >/dev/null 2>&1 <<<"$out2" \
+   && jq -e '.networkVersion == "10.6.101"' >/dev/null 2>&1 <<<"$out" \
    && (( $(grep -cF 'sites?' "$work/requests") == 1 )) \
    && ! grep -q clients "$work/requests"; then
   ok "renders the fixture; a poll handed the site skips the lookup"
@@ -227,7 +232,8 @@ if jq -e '.error == null and .oversized == true and .summary.devices == 5000
           and (.controller.url | startswith("http://127.0.0.1:"))
           and .summary.clients == 15 and .summary.wireless == 10
           and .summary.wired == 5' >/dev/null 2>&1 <<<"$out" \
-   && ! grep -q clients "$work/requests" && ! grep -qF '/info' "$work/requests"; then
+   && jq -e '.networkVersion == "10.6.101"' >/dev/null 2>&1 <<<"$out" \
+   && ! grep -q clients "$work/requests"; then
   ok "falls back to controller and gateway details on an oversized site"
 else
   fail "falls back to controller and gateway details on an oversized site" "${out:0:300}"
@@ -242,6 +248,7 @@ out2=$(timeout 60 "$PLUGIN_DIR/unifi-fetch" \
   "--gateway=$(jq -r '.gateway.id' <<<"$out")")
 if jq -e '.error == null and .oversized == true and .devices[0].kind == "gateway"' >/dev/null 2>&1 <<<"$out2" \
    && (( $(grep -cF 'devices?' "$work/requests") == hunt_pages + 1 )) \
+   && (( $(grep -cF '/info' "$work/requests") == 1 )) \
    && grep -q 'devices/d4' "$work/requests"; then
   ok "a poll handed the gateway id skips the hunt"
 else

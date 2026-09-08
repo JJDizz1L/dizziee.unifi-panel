@@ -188,6 +188,10 @@ def health_clients:
     gateway: (if $gateway == null then null
               else {id: $gateway.id, name: $gateway.name, stats: $stats,
                     history: report_history($gateway.mac), wan: $wan} end),
+    # The controller's Network application version from /v1/info, for the
+    # panel footer and for gating version-dependent calls. Null when unfetched.
+    networkVersion: (if (.info.applicationVersion | type) == "string"
+                     then .info.applicationVersion else null end),
     summary: {
       devices: (if $device_total > 0 then $device_total else ($devices | length) end),
       online: ($devices | map(select(.bucket == "online")) | length),

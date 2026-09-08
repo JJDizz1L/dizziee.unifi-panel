@@ -36,6 +36,9 @@ Panel {
   // carries the configured controller address ({url}).
   property bool oversized: false
   property var controllerInfo: null
+  // Network application version from /v1/info, for the footer and for gating
+  // version-dependent calls. Empty while unknown; kept across failed polls.
+  property string networkVersion: ""
 
   // The controller's own device list, for the oversized view. UniFi OS
   // consoles serve the Network app at /network/<site>/devices; without a
@@ -288,6 +291,8 @@ Panel {
     gateway = (parsed && parsed.gateway) ? parsed.gateway : null
     oversized = (parsed && parsed.oversized === true)
     controllerInfo = (parsed && parsed.controller) ? parsed.controller : null
+    if (parsed && typeof parsed.networkVersion === "string" && parsed.networkVersion !== "")
+      networkVersion = parsed.networkVersion
     lastUpdatedAt = Date.now()
     recordRates()
 
@@ -805,7 +810,9 @@ Panel {
           text: root.refreshing
             ? "Refreshing…"
             : (root.lastUpdatedAt > 0
-               ? "Updated " + root.formatAgo(root.lastUpdatedAt / 1000) + "   ·   R to refresh"
+               ? "Updated " + root.formatAgo(root.lastUpdatedAt / 1000)
+                 + (root.networkVersion !== "" ? "   ·   Network " + root.networkVersion : "")
+                 + "   ·   R to refresh"
                : "")
           color: root.detailColor
           font.family: Style.font.family

@@ -42,6 +42,18 @@ if jq -f "$NORMALIZE" <<<'{"siteRef":"default"}' | jq -e '.site.ref == "default"
 else
   printf '  FAIL  passes the vetted site reference through\n'; (( failed++ ))
 fi
+# /v1/info's applicationVersion rides through as the panel's footer version;
+# anything but a string (or nothing fetched) normalizes to null, not "null".
+if jq -f "$NORMALIZE" <<<'{"info":{"applicationVersion":"10.6.101"}}' |
+   jq -e '.networkVersion == "10.6.101"' >/dev/null 2>&1 \
+   && jq -f "$NORMALIZE" <<<'{}' |
+   jq -e '.networkVersion == null' >/dev/null 2>&1 \
+   && jq -f "$NORMALIZE" <<<'{"info":{"applicationVersion":106}}' |
+   jq -e '.networkVersion == null' >/dev/null 2>&1; then
+  printf '  ok    passes the Network version through, null when unfetched\n'; (( passed++ ))
+else
+  printf '  FAIL  passes the Network version through, null when unfetched\n'; (( failed++ ))
+fi
 check "counts every device" network.json '.summary.devices == 5'
 check "counts online devices" network.json '.summary.online == 3'
 # CONNECTION_INTERRUPTED means the controller cannot hear the device; for the

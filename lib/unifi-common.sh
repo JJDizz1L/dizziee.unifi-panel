@@ -9,7 +9,10 @@
 # render the reason rather than guess why a process died. A failure the user
 # can fix by signing in carries "needsLogin": true.
 
-readonly UNIFI_PLUGIN_ID="hegjon.unifi"
+readonly UNIFI_PLUGIN_ID="dizziee.unifi-panel"
+# Previous id before the fork rebrand (0.6.0). The keyring entry under it is
+# adopted once by unifi-login and then cleared; nothing else reads it.
+readonly UNIFI_PLUGIN_ID_OLD="hegjon.unifi"
 
 readonly UNIFI_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/unifi"
 readonly UNIFI_CONFIG_FILE="$UNIFI_STATE_DIR/config"
@@ -79,6 +82,16 @@ unifi_api_key() {
   secret-tool lookup application "$UNIFI_PLUGIN_ID" type api-key 2>/dev/null
 }
 
+# Key stored under the pre-rebrand id. Only unifi-login consults this, to
+# adopt the entry on first run after the upgrade; the fetch never falls back.
+unifi_previous_api_key() {
+  secret-tool lookup application "$UNIFI_PLUGIN_ID_OLD" type api-key 2>/dev/null
+}
+
+unifi_clear_previous_api_key() {
+  secret-tool clear application "$UNIFI_PLUGIN_ID_OLD" type api-key 2>/dev/null || true
+}
+
 unifi_store_api_key() { # key on stdin
   secret-tool store --label="UniFi API key (Omarchy plugin)" \
     application "$UNIFI_PLUGIN_ID" type api-key
@@ -86,6 +99,7 @@ unifi_store_api_key() { # key on stdin
 
 unifi_clear_api_key() {
   secret-tool clear application "$UNIFI_PLUGIN_ID" type api-key 2>/dev/null || true
+  unifi_clear_previous_api_key
 }
 
 # Identifiers the controller hands back — site id, site internal reference,

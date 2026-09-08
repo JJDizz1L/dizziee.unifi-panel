@@ -21,7 +21,7 @@ import "./components"
 Panel {
   id: root
 
-  readonly property string pluginId: "hegjon.unifi"
+  readonly property string pluginId: "dizziee.unifi-panel"
 
   moduleName: pluginId
   ipcTarget: pluginId

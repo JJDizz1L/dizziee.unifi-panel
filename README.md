@@ -23,22 +23,22 @@ over a VPN.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/hegjon/omarchy-unifi.git --enable
+omarchy plugin add https://github.com/JJDizz1L/dizziee.unifi-panel.git --enable
 omarchy restart shell
 ```
 
 If the widget is enabled but not visible, place it explicitly:
 
 ```bash
-omarchy plugin enable hegjon.unifi --section right
+omarchy plugin enable dizziee.unifi-panel --section right
 omarchy restart shell
 ```
 
 Update or remove:
 
 ```bash
-omarchy plugin update hegjon.unifi --yes
-omarchy plugin remove hegjon.unifi
+omarchy plugin update dizziee.unifi-panel --yes
+omarchy plugin remove dizziee.unifi-panel
 ```
 
 Requires `curl`, `jq` and `secret-tool` (package `libsecret`), all present on a
@@ -49,7 +49,7 @@ stock Omarchy system.
 1. In the UniFi Network application go to **Settings → Control Plane →
    Integrations** and create an API key.
 2. Click the widget and press **Set up**, or run
-   `~/.config/omarchy/plugins/hegjon.unifi/unifi-login` in a terminal.
+   `~/.config/omarchy/plugins/dizziee.unifi-panel/unifi-login` in a terminal.
 3. Enter the controller address (your default gateway is offered, which on a
    UniFi network is usually the console), say whether to accept its
    self-signed certificate (the default is to allow it), and paste the key.
@@ -85,7 +85,7 @@ Under the widget's settings in the bar:
   cooldown
 
 Middle-click the icon, or press **R** in the panel, to refresh. IPC:
-`omarchy-shell hegjon.unifi open|close|toggle|refresh`.
+`omarchy-shell dizziee.unifi-panel open|close|toggle|refresh`.
 
 ## Development
 

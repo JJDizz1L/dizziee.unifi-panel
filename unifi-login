@@ -87,6 +87,13 @@ answer="${answer:-$default_insecure}"
 insecure=$([[ $answer =~ ^[Yy] ]] && echo 1 || echo 0)
 
 existing_key="$(unifi_api_key)"
+# First run after the rebrand: adopt the key stored under the old plugin id
+# so "leave empty to keep the stored one" keeps working across the upgrade.
+migrated_key=0
+if [[ -z $existing_key ]]; then
+  existing_key="$(unifi_previous_api_key)"
+  [[ -n $existing_key ]] && migrated_key=1
+fi
 if [[ -n $existing_key ]]; then
   read -r -s -p "API key (leave empty to keep the stored one): " key
 else
@@ -160,6 +167,8 @@ unifi_is_token "$site" || { echo "The controller returned an unusable site id." 
 
 printf '%s' "$key" | unifi_store_api_key || { echo "Could not store the API key in the keyring." >&2; exit 1; }
 unset key
+# The key now lives under the new id; drop the pre-rebrand entry it came from.
+(( migrated_key )) && unifi_clear_previous_api_key
 unifi_save_config "$url" "$site" "$insecure"
 
 echo "Signed in."

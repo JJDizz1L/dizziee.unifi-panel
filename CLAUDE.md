@@ -1,7 +1,7 @@
 # Working notes for agents
 
 Omarchy bar-widget plugin. This checkout *is* the installed plugin
-(`~/.config/omarchy/plugins/hegjon.unifi`), so edits are live.
+(`~/.config/omarchy/plugins/dizziee.unifi-panel`), so edits are live.
 
 ## Verifying changes
 
@@ -14,13 +14,13 @@ Omarchy bar-widget plugin. This checkout *is* the installed plugin
 - The shell hot-reloads the plugin on file change, but not reliably for
   everything. For a trustworthy check run `omarchy-restart-shell`, wait ~7 s,
   then read `journalctl --user --since "30 sec ago" | grep -i unifi`.
-- IPC: `omarchy-shell hegjon.unifi open|close|toggle|refresh`.
+- IPC: `omarchy-shell dizziee.unifi-panel open|close|toggle|refresh`.
 - No live controller is needed to test the scripts: serve
   `test/fixtures/network.json` from a stub that answers
   `/proxy/network/integration/v1/sites`, `.../devices`, `.../clients` under
   `{"data":[…],"totalCount":n}` and requires `X-API-KEY`, point `unifi-login`
   at it with `XDG_STATE_HOME` set to a scratch dir, and store a throwaway key.
-  Clear the key afterwards: `secret-tool clear application hegjon.unifi type api-key`.
+  Clear the key afterwards: `secret-tool clear application dizziee.unifi-panel type api-key`.
 
 ## API reference
 
@@ -79,7 +79,7 @@ Omarchy bar-widget plugin. This checkout *is* the installed plugin
 - The graph needs samples, one per controller heartbeat (~24 s). To see it
   quickly, point `backendPath` at a stub that prints the fixture with a
   synthetic `stats` block and a fresh `lastHeartbeatAt` each call, then
-  `omarchy-shell hegjon.unifi refresh` in a loop. Swap the file back from a
+  `omarchy-shell dizziee.unifi-panel refresh` in a loop. Swap the file back from a
   copy — **not** `git checkout`, which discards every uncommitted edit in it.
 
 ## Things to keep
@@ -88,8 +88,9 @@ Omarchy bar-widget plugin. This checkout *is* the installed plugin
   config on stdin (`unifi_http`), and `secret-tool` reads it from stdin.
 - `fetch_all` sets `FETCHED` rather than printing, because `die` inside a
   `$(...)` would end only the subshell and its JSON would be captured as data.
-- The plugin id (`hegjon.unifi`) is also the keyring `application` attribute
-  and the IPC target. Renaming it orphans the stored key.
+- The plugin id (`dizziee.unifi-panel`, `hegjon.unifi` before the 0.6.0 rebrand) is also the keyring `application` attribute
+  and the IPC target. Renaming it orphans the stored key — `unifi-login` adopts the
+  pre-rebrand entry once and clears it; `unifi-login --forget` clears both.
 - unifi-login stores only the site id — deliberate: a rename or typo fix on
   the controller must keep polling the same site. unifi-fetch resolves the
   name and internalReference from /sites only when not told them: the widget

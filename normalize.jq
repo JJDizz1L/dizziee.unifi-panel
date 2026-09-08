@@ -171,6 +171,7 @@ def health_clients:
 | ($devices | map(select(.kind == "gateway")) | .[0] // null) as $gateway
 | (as_number(.deviceTotal) // 0) as $device_total
 | (health_clients // {clients: null, wireless: null, wired: null}) as $hc
+| (.pending // null) as $pending
 | {
     # ref is the classic-API reference as vetted by the fetch; the widget
     # hands it back on the next poll so the site lookup runs only once.
@@ -192,6 +193,16 @@ def health_clients:
     # panel footer and for gating version-dependent calls. Null when unfetched.
     networkVersion: (if (.info.applicationVersion | type) == "string"
                      then .info.applicationVersion else null end),
+    # Devices waiting for adoption from /v1/pending-devices. The count is the
+    # controller's claim; the rows are whatever page the fetch brought back.
+    # Null when the request failed, so the widget keeps its last answer.
+    pending: (if $pending == null then null else
+      ($pending.data // [] | map({
+        model: (.model // ""),
+        mac: (.macAddress // ""),
+        ip: (.ipAddress // "")
+      })) as $rows
+      | {count: (as_number($pending.totalCount) // ($rows | length)), devices: $rows} end),
     summary: {
       devices: (if $device_total > 0 then $device_total else ($devices | length) end),
       online: ($devices | map(select(.bucket == "online")) | length),

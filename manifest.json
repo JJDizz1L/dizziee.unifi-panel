@@ -35,6 +35,7 @@
       "notifyOffline": true,
       "notifyOnline": true,
       "notifyWan": true,
+      "notifyPending": true,
       "notifyCooldownMin": 10
     },
     "schema": [
@@ -90,6 +91,12 @@
         "key": "notifyWan",
         "type": "boolean",
         "label": "Notify when a WAN link goes down or recovers",
+        "defaultValue": true
+      },
+      {
+        "key": "notifyPending",
+        "type": "boolean",
+        "label": "Notify when a device waits for adoption",
         "defaultValue": true
       },
       {

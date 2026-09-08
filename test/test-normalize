@@ -54,6 +54,19 @@ if jq -f "$NORMALIZE" <<<'{"info":{"applicationVersion":"10.6.101"}}' |
 else
   printf '  FAIL  passes the Network version through, null when unfetched\n'; (( failed++ ))
 fi
+# /v1/pending-devices rides through as the controller's count plus one
+# model/mac/ip row per device; missing fields render empty, and no request
+# at all normalizes to null rather than an empty block.
+pending_out=$(jq -f "$NORMALIZE" \
+  <<<'{"pending":{"totalCount":2,"data":[{"model":"U6-Lite","macAddress":"aa","ipAddress":"1.2.3.4"},{"model":"USW"}]}}' 2>&1)
+if jq -e '.pending.count == 2 and .pending.devices[0].ip == "1.2.3.4"
+         and .pending.devices[1].mac == "" and .pending.devices[1].ip == ""' \
+     >/dev/null 2>&1 <<<"$pending_out" \
+   && jq -f "$NORMALIZE" <<<'{}' | jq -e '.pending == null' >/dev/null 2>&1; then
+  printf '  ok    passes pending devices through, null when unfetched\n'; (( passed++ ))
+else
+  printf '  FAIL  passes pending devices through, null when unfetched\n'; (( failed++ ))
+fi
 check "counts every device" network.json '.summary.devices == 5'
 check "counts online devices" network.json '.summary.online == 3'
 # CONNECTION_INTERRUPTED means the controller cannot hear the device; for the

@@ -75,6 +75,10 @@ Panel {
   property var notifiedAt: ({})
   // WAN link states keyed by link key, mirroring lastSeenById for devices.
   property var lastWanByKey: ({})
+  // Devices waiting for adoption ({count, devices} or null while unknown),
+  // and the count at the last poll so only genuine arrivals announce.
+  property var pending: null
+  property int lastPendingCount: -1
 
   // --- settings ---------------------------------------------------------
 
@@ -104,6 +108,7 @@ Panel {
   readonly property bool notifyOffline: boolSetting("notifyOffline", true)
   readonly property bool notifyOnline: boolSetting("notifyOnline", true)
   readonly property bool notifyWan: boolSetting("notifyWan", true)
+  readonly property bool notifyPending: boolSetting("notifyPending", true)
   readonly property int notifyCooldownMs: intSetting("notifyCooldownMin", 10, 1, 240) * 60000
 
   // Qt.resolvedUrl yields a file:// URL; Process wants a plain path.
@@ -193,6 +198,14 @@ Panel {
     return String(summary.clients)
   }
 
+  // Short claim about devices waiting for adoption, or "" when there are
+  // none known. Shared by the tooltip and the panel section header.
+  readonly property string pendingSummary: {
+    if (!pending || !(pending.count > 0)) return ""
+    return pending.count + (pending.count === 1 ? " device" : " devices")
+      + " waiting for adoption"
+  }
+
   readonly property string tooltipSummary: {
     if (needsLogin) return "UniFi: not signed in"
     if (dataIsStale && lastUpdatedAt > 0)
@@ -203,6 +216,7 @@ Panel {
       var head = summary.devices + " devices"
       if (summary.clients !== null && summary.clients !== undefined)
         head += " · " + summary.clients + " clients"
+      if (pendingSummary !== "") head += " · " + pendingSummary
       return head + " — full list in the UniFi web UI"
     }
     var parts = []
@@ -210,6 +224,7 @@ Panel {
     parts.push(summary.online + "/" + summary.devices + " devices online")
     if (summary.clients !== null && summary.clients !== undefined)
       parts.push(summary.clients + " clients")
+    if (pendingSummary !== "") parts.push(pendingSummary)
     return parts.join(" · ")
   }
 
@@ -293,11 +308,16 @@ Panel {
     controllerInfo = (parsed && parsed.controller) ? parsed.controller : null
     if (parsed && typeof parsed.networkVersion === "string" && parsed.networkVersion !== "")
       networkVersion = parsed.networkVersion
+    // A failed poll leaves the previous answer in place: without it a single
+    // failed request would announce every pending device as new on recovery.
+    if (parsed && parsed.pending && typeof parsed.pending.count === "number")
+      pending = parsed.pending
     lastUpdatedAt = Date.now()
     recordRates()
 
     evaluateNotifications()
     evaluateWanNotifications()
+    evaluatePendingNotifications()
   }
 
   function recordRates() {
@@ -394,6 +414,27 @@ Panel {
 
     lastWanByKey = seen
     notifiedAt = stamps
+  }
+
+  // A device appearing in the pending list is news; one disappearing was
+  // adopted (or unplugged) and needs no announcement. Counts only: the first
+  // poll of a session records and stays silent, like device transitions.
+  function evaluatePendingNotifications() {
+    var count = (pending && typeof pending.count === "number") ? pending.count : -1
+    var previous = lastPendingCount
+    lastPendingCount = count
+
+    if (!notifyPending || previous < 0 || count < 0 || count <= previous) return
+
+    var stampKey = "pending"
+    var now = Date.now()
+    if (now - (notifiedAt[stampKey] || 0) < notifyCooldownMs) return
+    var stamps = notifiedAt
+    stamps[stampKey] = now
+    notifiedAt = stamps
+
+    notify(count === 1 ? "Device waiting for adoption" : count + " devices waiting for adoption",
+           "Adopt them in the UniFi console")
   }
 
   // The title is a device name the controller chose. omarchy-notification-send
@@ -707,6 +748,62 @@ Panel {
           color: root.detailColor
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
+        }
+
+        // Devices waiting for adoption. The rows are capped so a stack of
+        // new hardware cannot push the gateway block out of view; the header
+        // carries the controller's full count either way.
+        Column {
+          width: parent.width
+          spacing: Style.space(2)
+          visible: root.initialized && !root.needsLogin && root.lastError === ""
+            && root.pendingSummary !== ""
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            text: root.pendingSummary
+            color: Color.accent
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+
+          Repeater {
+            model: root.pending && root.pending.devices
+              ? root.pending.devices.slice(0, 5) : []
+
+            Text {
+              textFormat: Text.PlainText
+              required property var modelData
+              width: parent.width
+              elide: Text.ElideRight
+              text: [modelData.model, modelData.ip, modelData.mac].filter(function(s) { return s !== "" }).join("  ·  ")
+              color: root.detailColor
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            // The header already carries the controller's full count; this
+            // only appears when rows were held back (panel cap or page cap).
+            visible: {
+              if (!root.pending || typeof root.pending.count !== "number") return false
+              var shown = root.pending.devices ? Math.min(root.pending.devices.length, 5) : 0
+              return root.pending.count > shown
+            }
+            text: {
+              // Evaluated even while hidden, so the null guard repeats here.
+              if (!root.pending || typeof root.pending.count !== "number") return ""
+              var shown = root.pending.devices ? Math.min(root.pending.devices.length, 5) : 0
+              return "+" + (root.pending.count - shown) + " more"
+            }
+            color: root.detailColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
         }
 
         Text {

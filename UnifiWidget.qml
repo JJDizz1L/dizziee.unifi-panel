@@ -126,7 +126,7 @@ Panel {
   // Fast while the panel is open so the gateway's rates and load feel live:
   // the controller heartbeats every ~20 s, so most polls repeat the last
   // sample, but each is four small LAN requests (the report is cached).
-  readonly property int refreshIntervalMs: intSetting("refreshIntervalSec", 5, 1, 300) * 1000
+  readonly property int refreshIntervalMs: intSetting("refreshIntervalSec", 180, 1, 300) * 1000
   readonly property bool watchEnabled: boolSetting("watch", true)
   readonly property int watchIntervalMs: intSetting("watchIntervalSec", 120, 30, 3600) * 1000
   readonly property bool notifyOffline: boolSetting("notifyOffline", true)
@@ -199,7 +199,10 @@ Panel {
   function formatAgo(epochSeconds) {
     if (!epochSeconds) return "never"
     var deltaSeconds = Date.now() / 1000 - epochSeconds
-    if (deltaSeconds < 90) return "just now"
+    if (deltaSeconds < 90) {
+      var s = Math.max(1, Math.round(deltaSeconds))
+      return s + (s === 1 ? " second ago" : " seconds ago")
+    }
     if (deltaSeconds < 3600) return Math.round(deltaSeconds / 60) + " min ago"
     if (deltaSeconds < 86400) return Math.round(deltaSeconds / 3600) + " h ago"
     return Math.round(deltaSeconds / 86400) + " d ago"
@@ -1790,13 +1793,19 @@ Panel {
 
           textFormat: Text.PlainText
           width: parent.width
-          text: root.refreshing
-            ? "Refreshing…"
-            : (root.lastUpdatedAt > 0
-               ? "Updated " + root.formatAgo(root.lastUpdatedAt / 1000)
-                 + (root.networkVersion !== "" ? "   ·   Network " + root.networkVersion : "")
-                 + "   ·   R to refresh"
-               : "")
+          text: {
+            // nowMs ticks every 10 s so the age counts live; without it the
+            // line would freeze until the next poll.
+            var tick = root.nowMs
+            var tail = (root.networkVersion !== ""
+              ? "   ·   Network " + root.networkVersion : "")
+              + "   ·   R to refresh"
+            // While a poll runs only the age gives way; the version and the
+            // hint stay put so the line never collapses to a lone word.
+            if (root.refreshing) return "Refreshing…" + tail
+            if (root.lastUpdatedAt <= 0) return ""
+            return "Updated " + root.formatAgo(root.lastUpdatedAt / 1000) + tail
+          }
           color: root.detailColor
           font.family: Style.font.family
           font.pixelSize: Style.font.caption

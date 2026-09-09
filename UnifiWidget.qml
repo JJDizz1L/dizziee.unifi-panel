@@ -156,14 +156,6 @@ Panel {
 
   // --- formatting -------------------------------------------------------
 
-  function kindGlyph(kind) {
-    switch (kind) {
-      case "ap": return String.fromCodePoint(0xF0003)        // md-access_point
-      case "switch": return String.fromCodePoint(0xF0318)    // md-lan_connect
-      default: return String.fromCodePoint(0xF1087)          // md-router_network
-    }
-  }
-
   function stateLabel(state) {
     switch (state) {
       case "ONLINE": return "Online"
@@ -1039,10 +1031,62 @@ Panel {
           return total
         }
 
-        PanelSectionHeader {
-          textFormat: Text.PlainText   // the site name is controller data
+        // Hero header, omasecurity-style: the bar mark, coloured, beside
+        // the panel title and the site it watches. The site name is
+        // controller data, so its Text stays PlainText like every other.
+        Item {
           width: parent.width
-          text: root.site.name !== "" ? "UniFi · " + root.site.name : "UniFi"
+          implicitHeight: Math.max(headerMark.height, headerLabels.implicitHeight)
+          height: implicitHeight
+
+          Item {
+            id: headerMark
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            width: markIcon.iconSize
+            height: markIcon.iconSize
+
+            UbiquitiIcon {
+              id: markIcon
+              anchors.centerIn: parent
+              iconSize: Math.round(Style.font.display * 0.9)
+              // Same alarm language as the bar: urgent while something is
+              // offline or the poll fails, dimmed before sign-in.
+              color: root.needsLogin ? root.detailColor
+                : (root.summary.offline > 0 || (root.lastError !== "" && !root.needsLogin)
+                   ? Color.urgent : Color.accent)
+            }
+          }
+
+          Column {
+            id: headerLabels
+            anchors.left: headerMark.right
+            anchors.leftMargin: Style.space(12)
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(2)
+
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              text: "UniFi Panel"
+              color: Color.popups.text
+              font.family: Style.font.family
+              font.pixelSize: Style.font.title
+              font.bold: true
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              visible: root.site.name !== ""
+              elide: Text.ElideRight
+              text: root.site.name
+              color: root.detailColor
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+          }
         }
 
         // Sign-in prompt takes over the panel: nothing else can work without it.
@@ -1700,9 +1744,6 @@ Panel {
               width: column.width
               device: gatewayEntry.modelData
               host: root
-              // No role glyph here: a single gateway needs no introduction
-              // and the text takes the full width.
-              showGlyph: false
               expanded: root.expandedDeviceId !== ""
                 && String(gatewayEntry.modelData.id) === root.expandedDeviceId
               gatewayStats: root.showGatewayStats && root.gateway && root.gateway.stats

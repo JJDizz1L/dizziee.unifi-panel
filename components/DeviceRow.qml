@@ -4,7 +4,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// One UniFi device in the list: role glyph, name and state, model and address,
+// One UniFi device in the list: name and state, model and address,
 // and a firmware notice when an update waits. Clicking the header expands
 // per-device detail (load, ports, radios) underneath. The gateway
 // additionally carries its statistics block.
@@ -31,9 +31,6 @@ Item {
   // once the row is clicked open, like the ports below it — never on the
   // Overview row, which keeps the graphs and hides the public address.
   property bool showWanOnExpand: false
-  // The Overview gateway row hides the role glyph so the text takes the full
-  // width; the Devices list keeps it to tell roles apart at a glance.
-  property bool showGlyph: true
   property bool expanded: false
 
   height: body.implicitHeight
@@ -49,22 +46,8 @@ Item {
       width: parent.width
       spacing: Style.space(10)
 
-      Text {
-
-        textFormat: Text.PlainText
-        id: glyph
-        visible: row.showGlyph
-        anchors.verticalCenter: parent.verticalCenter
-        width: row.showGlyph ? Style.space(22) : 0
-        horizontalAlignment: Text.AlignHCenter
-        text: row.host.kindGlyph(row.device.kind)
-        color: row.host.bucketColor(row.device.bucket)
-        font.family: Style.font.family
-        font.pixelSize: Style.font.body + 4
-      }
-
       Column {
-        width: parent.width - (row.showGlyph ? glyph.width + Style.space(10) : 0)
+        width: parent.width
         spacing: Style.space(2)
 
         Row {
@@ -126,10 +109,7 @@ Item {
     }
 
     GatewayStats {
-      // Indented under the name, past the glyph column (flush on rows
-      // without the glyph).
-      x: row.showGlyph ? Style.space(22) + Style.space(10) : 0
-      width: parent.width - x
+      width: parent.width
       visible: row.gatewayStats !== null
       host: row.host
       latest: row.gatewayStats
@@ -143,8 +123,7 @@ Item {
     GatewayStats {
       // The Devices-tab gateway detail: addresses and ISP, no graphs.
       // Visible only once the row is clicked open.
-      x: row.showGlyph ? Style.space(22) + Style.space(10) : 0
-      width: parent.width - x
+      width: parent.width
       visible: row.showWanOnExpand && row.expanded && row.wanState !== null
       host: row.host
       latest: null
@@ -156,9 +135,7 @@ Item {
     }
 
     DeviceDetail {
-      // Indented with the statistics block (flush on rows without the glyph).
-      x: row.showGlyph ? Style.space(22) + Style.space(10) : 0
-      width: parent.width - x
+      width: parent.width
       visible: row.expanded
       host: row.host
       bundle: row.host.deviceBundle(String(row.device.id))

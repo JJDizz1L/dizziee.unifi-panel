@@ -38,7 +38,6 @@ the extra lines simply disappear.
 
 ```bash
 omarchy plugin add https://github.com/JJDizz1L/dizziee.unifi-panel.git --enable
-omarchy restart shell
 ```
 
 If the widget is enabled but not visible, place it explicitly:

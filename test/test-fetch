@@ -240,6 +240,8 @@ if jq -e '.error == null and .clientsDetail.count == 4
          and .clientsDetail.vpn == 1 and .clientsDetail.teleport == 0
          and .clientsDetail.guests == 1
          and .clientsDetail.vpnClients[0].name == "Road Warrior"
+         and .clientsDetail.list[1].kind == "wireless"
+         and .clientsDetail.list[1].ip == "192.168.1.21"
          and ([.devices[] | select(.id == "d1")][0].clients) == 2
          and ([.devices[] | select(.id == "d2")][0].clients) == 1
          and ([.devices[] | select(.id == "d4")][0].clients) == 0' \

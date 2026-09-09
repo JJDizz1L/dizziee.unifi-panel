@@ -95,7 +95,9 @@ Under the widget's settings in the bar:
 - Notify when a firmware update becomes available for a device
 
 Middle-click the icon, or press **R** in the panel, to refresh. IPC:
-`omarchy-shell dizziee.unifi-panel open|close|toggle|refresh`.
+`omarchy-shell dizziee.unifi-panel open|close|toggle|refresh` or
+`omarchy-shell dizziee.unifi-panel tab clients` (overview, devices, wifi,
+networks, vpn, clients).
 
 ## Development
 

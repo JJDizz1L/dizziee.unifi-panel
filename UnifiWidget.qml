@@ -244,6 +244,19 @@ Panel {
     }
   }
 
+  // The API's client type enum, shortened. Unknown values pass through
+  // raw — every text showing them sets PlainText, like the other
+  // controller data.
+  function clientTypeLabel(kind) {
+    switch (kind) {
+      case "wired": return "Wired"
+      case "wireless": return "Wireless"
+      case "vpn": return "VPN"
+      case "teleport": return "Teleport"
+      default: return kind ? String(kind) : ""
+    }
+  }
+
   // Short claim about devices waiting for adoption, or "" when there are
   // none known. Shared by the tooltip and the panel section header.
   readonly property string pendingSummary: {
@@ -276,6 +289,54 @@ Panel {
   // to the health-report totals mid-session.
   readonly property bool hasClientsDetail: clientsDetail !== null
     && clientsDetail !== undefined && typeof clientsDetail.count === "number"
+
+  // Panel tabs. Sections below show only on their own tab; the watch-row
+  // and strip stay visible whenever the panel has data to show.
+  readonly property var tabs: [
+    { key: "OVERVIEW", label: "Overview" },
+    { key: "DEVICES", label: "Devices" },
+    { key: "WIFI", label: "WiFi" },
+    { key: "NETWORKS", label: "Networks" },
+    { key: "VPN", label: "VPN" },
+    { key: "CLIENTS", label: "Clients" }
+  ]
+  property string activeTab: "OVERVIEW"
+
+  function showTab(name) {
+    var want = String(name || "").toUpperCase()
+    for (var i = 0; i < tabs.length; i++) {
+      if (tabs[i].key === want) {
+        activeTab = want
+        return
+      }
+    }
+  }
+
+  function cycleTab(direction) {
+    var at = 0
+    for (var i = 0; i < tabs.length; i++) {
+      if (tabs[i].key === activeTab) {
+        at = i
+        break
+      }
+    }
+    activeTab = tabs[(at + direction + tabs.length) % tabs.length].key
+  }
+
+  // WAN at a glance for the watch-row: label plus whether it alarms.
+  // Links that never carried traffic read as unused, not down.
+  readonly property var wanWatch: {
+    var links = (gateway && gateway.wan && gateway.wan.links) ? gateway.wan.links : []
+    var down = 0
+    for (var i = 0; i < links.length; i++) {
+      if (links[i].up !== true && links[i].state === "down") down++
+    }
+    if (gateway && gateway.wan && down > 0)
+      return { label: "WAN Down", alarm: true }
+    if (gateway && gateway.wan)
+      return { label: "WAN Online", alarm: false }
+    return { label: "WAN", alarm: false }
+  }
 
   // The API's VPN type enum, shortened. Unknown values pass through raw —
   // every text showing them sets PlainText, like the other controller data.
@@ -376,6 +437,7 @@ Panel {
     function hide(): void { root.close() }
     function toggle(): void { root.toggle() }
     function refresh(): void { root.refresh() }
+    function tab(name: string): void { root.showTab(name) }
   }
 
   // --- fetching ---------------------------------------------------------
@@ -749,6 +811,36 @@ Panel {
   // A newly opened panel should not show data from twenty minutes ago.
   onOpenedChanged: if (opened) refresh()
 
+  // A fresh tab starts at the top of the device list.
+  onActiveTabChanged: deviceList.contentY = 0
+
+  // One watch-row vital: text plus the tab it jumps to on click.
+  component WatchSegment: Item {
+    required property string text
+    required property color color
+    required property string tabKey
+
+    width: segmentLabel.implicitWidth
+    height: segmentLabel.implicitHeight
+
+    Text {
+      id: segmentLabel
+      textFormat: Text.PlainText
+      text: parent.text
+      color: parent.color
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+    }
+
+    MouseArea {
+      anchors.fill: parent
+      acceptedButtons: Qt.LeftButton
+      cursorShape: Qt.PointingHandCursor
+      hoverEnabled: true
+      onClicked: root.showTab(parent.tabKey)
+    }
+  }
+
   // --- bar button -------------------------------------------------------
 
   Component {
@@ -847,8 +939,13 @@ Panel {
       anchors.fill: parent
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
-      // j/k and the arrow keys scroll the device list, one row at a time.
+      // h/l and the arrow keys step sideways through tabs; j/k and the
+      // arrow keys scroll the device list, one row at a time.
       onMoveRequested: function(dx, dy) {
+        if (dx !== 0) {
+          root.cycleTab(dx)
+          return
+        }
         if (dy === 0 || !deviceList.interactive) return
         var step = deviceList.rowHeight * dy
         deviceList.contentY = Math.max(0, Math.min(deviceList.contentHeight - deviceList.height,
@@ -863,6 +960,9 @@ Panel {
         if (heldKey === key) return
         heldKey = key
         if (key === "r") root.refresh()
+        var digit = parseInt(key, 10)
+        if (digit >= 1 && digit <= root.tabs.length)
+          root.showTab(root.tabs[digit - 1].key)
       }
 
       Column {
@@ -962,6 +1062,100 @@ Panel {
           font.pixelSize: Style.font.body
         }
 
+        // Watch-row: the three vitals, always visible with data. Each jumps
+        // to the tab that explains it.
+        Row {
+          width: parent.width
+          spacing: Style.space(8)
+          visible: root.initialized && !root.needsLogin && root.lastError === ""
+
+          WatchSegment {
+            text: root.summary.offline > 0
+              ? root.summary.offline + " offline"
+              : root.summary.online + "/" + root.summary.devices + " online"
+            color: root.summary.offline > 0 ? Color.urgent : Color.popups.text
+            tabKey: "DEVICES"
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            color: root.detailColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            text: "·"
+          }
+
+          WatchSegment {
+            text: root.hasClientsDetail
+              ? root.clientsDetail.count + (root.clientsDetail.count === 1 ? " client" : " clients")
+              : (root.summary.clients !== null && root.summary.clients !== undefined
+                 ? root.summary.clients + " clients" : "Clients")
+            color: Color.popups.text
+            tabKey: "CLIENTS"
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            color: root.detailColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            text: "·"
+          }
+
+          WatchSegment {
+            text: root.wanWatch.label
+            color: root.wanWatch.alarm ? Color.urgent : Color.popups.text
+            tabKey: "OVERVIEW"
+          }
+        }
+
+        // Tab strip, underline style: the active tab carries the accent.
+        Flow {
+          width: parent.width
+          spacing: Style.space(12)
+          visible: root.initialized && !root.needsLogin && root.lastError === ""
+
+          Repeater {
+            model: root.tabs
+
+            Item {
+              id: tabItem
+              required property var modelData
+              width: tabLabel.implicitWidth
+              height: tabLabel.implicitHeight + Style.space(4)
+
+              Text {
+                id: tabLabel
+                textFormat: Text.PlainText
+                anchors.top: parent.top
+                text: tabItem.modelData.label
+                color: root.activeTab === tabItem.modelData.key ? Color.popups.text : root.detailColor
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                font.bold: root.activeTab === tabItem.modelData.key
+              }
+
+              Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 2
+                radius: 1
+                visible: root.activeTab === tabItem.modelData.key
+                color: Color.accent
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.LeftButton
+                cursorShape: Qt.PointingHandCursor
+                hoverEnabled: true
+                onClicked: root.showTab(tabItem.modelData.key)
+              }
+            }
+          }
+        }
+
         // Client summary. The counts come from the controller's health
         // report — unless the opt-in client list below has answered, in
         // which case it takes over. When both are missing the line
@@ -971,6 +1165,7 @@ Panel {
           width: parent.width
           visible: root.initialized && !root.needsLogin && root.lastError === ""
             && !root.hasClientsDetail
+            && root.activeTab === "CLIENTS"
             && root.summary.clients !== null && root.summary.clients !== undefined
           text: {
             var parts = [root.summary.clients + " clients"]
@@ -993,6 +1188,7 @@ Panel {
           spacing: Style.space(2)
           visible: root.initialized && !root.needsLogin && root.lastError === ""
             && root.hasClientsDetail
+            && root.activeTab === "CLIENTS"
 
           Text {
             textFormat: Text.PlainText
@@ -1060,6 +1256,65 @@ Panel {
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
           }
+
+          // Every connected client, capped so a large fleet cannot push the
+          // panel out of view; the header line carries the full count.
+          Repeater {
+            model: root.clientsDetail && root.clientsDetail.list
+              ? root.clientsDetail.list.slice(0, 25) : []
+
+            Row {
+              id: clientRow
+              required property var modelData
+              width: parent.width
+              spacing: Style.space(8)
+
+              Text {
+                textFormat: Text.PlainText
+                id: clientName
+                width: parent.width - clientDetail.implicitWidth - Style.space(8)
+                elide: Text.ElideRight
+                text: clientRow.modelData.name !== ""
+                  ? clientRow.modelData.name : "Unnamed client"
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                id: clientDetail
+                text: {
+                  var parts = [root.clientTypeLabel(clientRow.modelData.kind)]
+                  if (clientRow.modelData.guest) parts.push("Guest")
+                  if (clientRow.modelData.ip !== "") parts.push(clientRow.modelData.ip)
+                  return parts.filter(function(s) { return s !== "" }).join("  ·  ")
+                }
+                color: root.detailColor
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            // Evaluated even while hidden, so the null guard comes first.
+            visible: {
+              if (!root.clientsDetail || typeof root.clientsDetail.count !== "number") return false
+              var shown = root.clientsDetail.list ? Math.min(root.clientsDetail.list.length, 25) : 0
+              return root.clientsDetail.count > shown
+            }
+            text: {
+              if (!root.clientsDetail || typeof root.clientsDetail.count !== "number") return ""
+              var shown = root.clientsDetail.list ? Math.min(root.clientsDetail.list.length, 25) : 0
+              return "+" + (root.clientsDetail.count - shown) + " more"
+            }
+            color: root.detailColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
         }
 
         // Devices waiting for adoption. The rows are capped so a stack of
@@ -1069,6 +1324,7 @@ Panel {
           width: parent.width
           spacing: Style.space(2)
           visible: root.initialized && !root.needsLogin && root.lastError === ""
+            && root.activeTab === "OVERVIEW"
             && root.pendingSummary !== ""
 
           Text {
@@ -1125,6 +1381,7 @@ Panel {
           width: parent.width
           spacing: Style.space(2)
           visible: root.showWifi && root.initialized && !root.needsLogin && root.lastError === ""
+            && root.activeTab === "WIFI"
             && root.wifiSummary !== ""
 
           Text {
@@ -1195,6 +1452,7 @@ Panel {
           width: parent.width
           spacing: Style.space(2)
           visible: root.showNetworks && root.initialized && !root.needsLogin && root.lastError === ""
+            && root.activeTab === "NETWORKS"
             && root.networksSummary !== ""
 
           Text {
@@ -1265,6 +1523,7 @@ Panel {
           width: parent.width
           spacing: Style.space(2)
           visible: root.showVpn && root.initialized && !root.needsLogin && root.lastError === ""
+            && root.activeTab === "VPN"
             && root.vpnSummary !== ""
 
           Text {
@@ -1323,33 +1582,48 @@ Panel {
 
           textFormat: Text.PlainText
           width: parent.width
+          // The gateway lives on Overview, so a single-gateway site leaves
+          // this tab with nothing to list. Say so instead of blank space.
           visible: root.initialized && !root.needsLogin && root.lastError === ""
-            && root.devices.length === 0 && !root.oversized
-          text: "No devices on this site."
+            && root.activeTab === "DEVICES"
+            && root.otherDevices.length === 0 && !root.oversized
+          text: root.devices.length === 0
+            ? "No devices on this site."
+            : "Only the gateway — see Overview."
           color: root.detailColor
           font.family: Style.font.family
           font.pixelSize: Style.font.body
         }
 
-        Repeater {
-          model: root.gatewayDevices
+        // The gateway leads its own tab. The Repeater cannot carry the
+        // visible guard itself — its delegates parent to this column, so a
+        // wrapper owns visibility.
+        Column {
+          width: parent.width
+          spacing: Style.space(10)
+          visible: root.initialized && !root.needsLogin && root.lastError === ""
+            && root.activeTab === "OVERVIEW"
 
-          DeviceRow {
-            id: gatewayEntry
+          Repeater {
+            model: root.gatewayDevices
 
-            required property var modelData
+            DeviceRow {
+              id: gatewayEntry
 
-            width: column.width
-            device: gatewayEntry.modelData
-            host: root
-            expanded: root.expandedDeviceId !== ""
-              && String(gatewayEntry.modelData.id) === root.expandedDeviceId
-            gatewayStats: root.showGatewayStats && root.gateway && root.gateway.stats
-              && String(gatewayEntry.modelData.id) === String(root.gateway.id)
-              ? root.gateway.stats : null
-            rateHistory: root.rateHistory
-            rateReport: root.gateway ? (root.gateway.history || null) : null
-            wanState: root.gateway ? (root.gateway.wan || null) : null
+              required property var modelData
+
+              width: column.width
+              device: gatewayEntry.modelData
+              host: root
+              expanded: root.expandedDeviceId !== ""
+                && String(gatewayEntry.modelData.id) === root.expandedDeviceId
+              gatewayStats: root.showGatewayStats && root.gateway && root.gateway.stats
+                && String(gatewayEntry.modelData.id) === String(root.gateway.id)
+                ? root.gateway.stats : null
+              rateHistory: root.rateHistory
+              rateReport: root.gateway ? (root.gateway.history || null) : null
+              wanState: root.gateway ? (root.gateway.wan || null) : null
+            }
           }
         }
 
@@ -1358,7 +1632,9 @@ Panel {
         Column {
           width: parent.width
           spacing: Style.space(8)
-          visible: root.initialized && !root.needsLogin && root.lastError === "" && root.oversized
+          visible: root.initialized && !root.needsLogin && root.lastError === ""
+            && root.activeTab === "DEVICES"
+            && root.oversized
 
           Text {
             textFormat: Text.PlainText
@@ -1394,7 +1670,7 @@ Panel {
           clip: true
           boundsBehavior: Flickable.StopAtBounds
           interactive: contentHeight > height
-          visible: count > 0
+          visible: root.activeTab === "DEVICES" && count > 0
 
           // One row plus spacing, for keyboard stepping.
           readonly property real rowHeight: (contentItem.children.length > 0

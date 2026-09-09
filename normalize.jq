@@ -295,7 +295,9 @@ def clients_per_device:
            teleport: ($rows | map(select(.kind == "teleport")) | length),
            guests: ($rows | map(select(.guest)) | length),
            vpnClients: ($rows | map(select(.kind == "vpn"))
-                        | map({name: .name, ip: .ip})[:10])} end),
+                        | map({name: .name, ip: .ip})[:10]),
+           list: ($rows | map({name: .name, kind: .kind,
+                               guest: .guest, ip: .ip}))} end),
     summary: {
       devices: (if $device_total > 0 then $device_total else ($devices | length) end),
       online: ($devices | map(select(.bucket == "online")) | length),

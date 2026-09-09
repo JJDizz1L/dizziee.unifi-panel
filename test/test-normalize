@@ -119,6 +119,8 @@ clients_out=$(jq -f "$NORMALIZE" \
 if jq -e '.clientsDetail.count == 3 and .clientsDetail.wired == 1
          and .clientsDetail.vpn == 1 and .clientsDetail.guests == 1
          and .clientsDetail.vpnClients[0].name == "Road"
+         and .clientsDetail.list[0].kind == "wired"
+         and .clientsDetail.list[2].guest == true
          and .devices[0].clients == 1' \
      >/dev/null 2>&1 <<<"$clients_out" \
    && jq -f "$NORMALIZE" <<<'{"devices":[{"id":"d1","state":"ONLINE"}]}' |

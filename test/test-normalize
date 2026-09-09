@@ -110,6 +110,25 @@ if jq -e '.vpn.servers[0].name == "Home VPN" and .vpn.servers[0].enabled == true
 else
   printf '  FAIL  passes VPN servers and tunnels through, null when unfetched\n'; (( failed++ ))
 fi
+# The opt-in client list: type breakdown with guest split, VPN names and
+# per-device counts by uplinkDeviceId. Unrequested the block is null and
+# every device counts zero; past the row cap only the claimed total
+# survives.
+clients_out=$(jq -f "$NORMALIZE" \
+  <<<'{"clientsRequested":true,"devices":[{"id":"d1","name":"AP","state":"ONLINE","features":["accessPoint"]}],"clients":[{"type":"WIRED","uplinkDeviceId":"d1","access":{"type":"DEFAULT"},"name":"PC","ipAddress":"1.2.3.4"},{"type":"VPN","access":{"type":"DEFAULT"},"name":"Road","ipAddress":"10.0.0.2"},{"type":"WIRELESS","uplinkDeviceId":"d9","access":{"type":"GUEST"}}]}' 2>&1)
+if jq -e '.clientsDetail.count == 3 and .clientsDetail.wired == 1
+         and .clientsDetail.vpn == 1 and .clientsDetail.guests == 1
+         and .clientsDetail.vpnClients[0].name == "Road"
+         and .devices[0].clients == 1' \
+     >/dev/null 2>&1 <<<"$clients_out" \
+   && jq -f "$NORMALIZE" <<<'{"devices":[{"id":"d1","state":"ONLINE"}]}' |
+      jq -e '.clientsDetail == null and .devices[0].clients == 0' >/dev/null 2>&1 \
+   && jq -f "$NORMALIZE" <<<'{"clientsRequested":true,"clientsTotal":5000,"clients":[]}' |
+      jq -e '.clientsDetail.count == 5000 and .clientsDetail.wired == null' >/dev/null 2>&1; then
+  printf '  ok    passes the client breakdown through, null when unrequested\n'; (( passed++ ))
+else
+  printf '  FAIL  passes the client breakdown through, null when unrequested\n'; (( failed++ ))
+fi
 check "counts every device" network.json '.summary.devices == 5'
 check "counts online devices" network.json '.summary.online == 3'
 # CONNECTION_INTERRUPTED means the controller cannot hear the device; for the

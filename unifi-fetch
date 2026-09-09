@@ -6,7 +6,7 @@
 # stores which site by id; the name and classic-API reference come from
 # /sites.
 #
-# Usage: unifi-fetch [--site=<id> --site-ref=<reference>] [--gateway=<id>]
+# Usage: unifi-fetch [--site=<id> --site-ref=<reference>] [--gateway=<id>] [--clients]
 #
 # The widget hands back the site it learned from an earlier poll, so only
 # the first poll after a (re)start — or any run without the flags — asks
@@ -37,6 +37,9 @@ readonly MAX_DEVICES=75
 # Pages per list: a backstop against a controller that keeps paging while
 # claiming a total the pages never reach.
 readonly MAX_PAGES=5
+# Client rows held for the opt-in breakdown and per-device join; past this
+# the panel gets the claimed total only.
+readonly MAX_CLIENTS=250
 # How far the gateway hunt pages into an oversized site before giving up.
 readonly MAX_SCAN_PAGES=25
 
@@ -56,12 +59,14 @@ unifi_require_commands
 KNOWN_SITE=""
 KNOWN_REF=""
 KNOWN_GATEWAY=""
+WANT_CLIENTS=0
 for arg in "$@"; do
   case "$arg" in
     --site=*) KNOWN_SITE="${arg#--site=}" ;;
     --site-ref=*) KNOWN_REF="${arg#--site-ref=}" ;;
     --gateway=*) KNOWN_GATEWAY="${arg#--gateway=}" ;;
-    *) die "unifi-fetch takes only --site=<id>, --site-ref=<reference> and --gateway=<id>" ;;
+    --clients) WANT_CLIENTS=1 ;;
+    *) die "unifi-fetch takes only --site=<id>, --site-ref=<reference>, --gateway=<id> and --clients" ;;
   esac
 done
 
@@ -273,10 +278,27 @@ if (( device_total > 0 )); then
   fi
 fi
 
+# The connected-client list is opt-in (the widget passes --clients when its
+# showClients setting is on): it can be large, so rows are capped and a site
+# past the cap gets the claimed total only. Unrequested, the panel falls
+# back to the health report's totals as before.
+clients='[]'
+clients_total=0
+clients_requested=false
+if (( WANT_CLIENTS )); then
+  clients_requested=true
+  fetch_all "/sites/$site_id/clients" "$MAX_CLIENTS"
+  clients="$FETCHED"
+  clients_total=$FETCH_OVERFLOW
+fi
+
 raw=$(jq -n --argjson site "$site" --argjson devices "$devices" \
-  --argjson total "$device_total" \
-  '{site: $site, devices: $devices}
-   + (if $total > 0 then {deviceTotal: $total} else {} end)')
+  --argjson total "$device_total" --argjson clients "$clients" \
+  --argjson clientsTotal "$clients_total" --argjson clientsRequested "$clients_requested" \
+  '{site: $site, devices: $devices, clients: $clients,
+    clientsRequested: $clientsRequested}
+   + (if $total > 0 then {deviceTotal: $total} else {} end)
+   + (if $clientsTotal > 0 then {clientsTotal: $clientsTotal} else {} end)')
 
 # The gateway's own statistics (WAN rates, load, uptime) are one more request,
 # for one device only, and are worth it: they are what the panel graphs. The

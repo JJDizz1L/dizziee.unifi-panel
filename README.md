@@ -82,6 +82,7 @@ runs, and the WAN lines simply disappear.
 Under the widget's settings in the bar:
 
 - Show the connected client count on the bar icon
+- Fetch the client list for type breakdown and per-device counts
 - Show the gateway's WAN graph, CPU, memory and uptime
 - Show WiFi networks with their security in the panel
 - Show networks with their VLAN ids in the panel

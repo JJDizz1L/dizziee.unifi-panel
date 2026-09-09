@@ -95,7 +95,9 @@ Item {
             textFormat: Text.PlainText
             width: parent.width - clientText.implicitWidth - Style.space(8)
             elide: Text.ElideRight
-            text: [row.device.model, row.device.ip].filter(function(s) { return s !== "" }).join("  ·  ")
+            text: [row.device.model, row.device.ip,
+                 row.device.clients > 0 ? row.device.clients + " clients" : ""]
+            .filter(function(s) { return s !== "" }).join("  ·  ")
             color: row.host.detailColor
             font.family: Style.font.family
             font.pixelSize: Style.font.caption

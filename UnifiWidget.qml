@@ -95,6 +95,10 @@ Panel {
   // VPN servers and tunnels ({servers, tunnels} or null while unknown).
   // The overviews carry no live status, so this is configuration only.
   property var vpn: null
+  // Connected-client breakdown from the opt-in /clients fetch
+  // ({count, wired, wireless, vpn, teleport, guests, vpnClients} or null
+  // while unfetched). Null is sticky: a failed poll keeps the last answer.
+  property var clientsDetail: null
 
   // --- settings ---------------------------------------------------------
 
@@ -118,6 +122,7 @@ Panel {
   readonly property bool showWifi: boolSetting("showWifi", true)
   readonly property bool showNetworks: boolSetting("showNetworks", true)
   readonly property bool showVpn: boolSetting("showVpn", true)
+  readonly property bool showClients: boolSetting("showClients", false)
   // Fast while the panel is open so the gateway's rates and load feel live:
   // the controller heartbeats every ~20 s, so most polls repeat the last
   // sample, but each is four small LAN requests (the report is cached).
@@ -266,6 +271,12 @@ Panel {
     return networks.count + (networks.count === 1 ? " network" : " networks")
   }
 
+  // True once the opt-in client list has answered at least once. Failed
+  // polls keep the last answer, so the rich line below never flickers back
+  // to the health-report totals mid-session.
+  readonly property bool hasClientsDetail: clientsDetail !== null
+    && clientsDetail !== undefined && typeof clientsDetail.count === "number"
+
   // The API's VPN type enum, shortened. Unknown values pass through raw —
   // every text showing them sets PlainText, like the other controller data.
   function vpnTypeLabel(vpnType) {
@@ -377,6 +388,7 @@ Panel {
     // controller string never reaches argv — and the fetch re-checks both
     // against its config before trusting them.
     var cmd = [backendPath]
+    if (showClients) cmd.push("--clients")
     if (site && site.id) {
       cmd.push("--site=" + site.id, "--site-ref=" + (site.ref || ""))
       // On an oversized site this lets the fetch get the gateway by id
@@ -432,6 +444,8 @@ Panel {
       networks = parsed.networks
     if (parsed && parsed.vpn && parsed.vpn.servers && parsed.vpn.tunnels)
       vpn = parsed.vpn
+    if (parsed && parsed.clientsDetail && typeof parsed.clientsDetail.count === "number")
+      clientsDetail = parsed.clientsDetail
     lastUpdatedAt = Date.now()
     recordRates()
 
@@ -949,13 +963,14 @@ Panel {
         }
 
         // Client summary. The counts come from the controller's health
-        // report — the client list is never fetched — and when the report
-        // is missing they are null and the line disappears rather than
-        // showing them.
+        // report — unless the opt-in client list below has answered, in
+        // which case it takes over. When both are missing the line
+        // disappears rather than showing nulls.
         Text {
           textFormat: Text.PlainText
           width: parent.width
           visible: root.initialized && !root.needsLogin && root.lastError === ""
+            && !root.hasClientsDetail
             && root.summary.clients !== null && root.summary.clients !== undefined
           text: {
             var parts = [root.summary.clients + " clients"]
@@ -968,6 +983,83 @@ Panel {
           color: root.detailColor
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
+        }
+
+        // Connected clients from the opt-in list fetch: exact type
+        // breakdown with guest split, plus who is on VPN. Past the row cap
+        // only the claimed total survives and the breakdown hides.
+        Column {
+          width: parent.width
+          spacing: Style.space(2)
+          visible: root.initialized && !root.needsLogin && root.lastError === ""
+            && root.hasClientsDetail
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            text: {
+              var detail = root.clientsDetail
+              if (!detail) return ""
+              var parts = [detail.count + (detail.count === 1 ? " client" : " clients")]
+              if (detail.wireless !== null && detail.wireless !== undefined && detail.wireless > 0)
+                parts.push(detail.wireless + " wireless")
+              if (detail.wired !== null && detail.wired !== undefined && detail.wired > 0)
+                parts.push(detail.wired + " wired")
+              if (detail.vpn !== null && detail.vpn !== undefined && detail.vpn > 0)
+                parts.push(detail.vpn + " VPN")
+              if (detail.teleport !== null && detail.teleport !== undefined && detail.teleport > 0)
+                parts.push(detail.teleport + " Teleport")
+              if (detail.guests !== null && detail.guests !== undefined && detail.guests > 0)
+                parts.push(detail.guests + " guests")
+              return parts.join("  ·  ")
+            }
+            color: root.detailColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+
+          Repeater {
+            model: root.clientsDetail && root.clientsDetail.vpnClients
+              ? root.clientsDetail.vpnClients.slice(0, 5) : []
+
+            Row {
+              id: vpnClientRow
+              required property var modelData
+              width: parent.width
+              spacing: Style.space(8)
+
+              Text {
+                textFormat: Text.PlainText
+                width: parent.width
+                elide: Text.ElideRight
+                text: "VPN  ·  " + (vpnClientRow.modelData.name !== ""
+                  ? vpnClientRow.modelData.name : "Unnamed client")
+                  + (vpnClientRow.modelData.ip !== "" ? "  ·  " + vpnClientRow.modelData.ip : "")
+                color: root.detailColor
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            // Evaluated even while hidden, so the null guard comes first.
+            visible: {
+              if (!root.clientsDetail || typeof root.clientsDetail.vpn !== "number") return false
+              var shown = root.clientsDetail.vpnClients ? Math.min(root.clientsDetail.vpnClients.length, 5) : 0
+              return root.clientsDetail.vpn > shown
+            }
+            text: {
+              if (!root.clientsDetail || typeof root.clientsDetail.vpn !== "number") return ""
+              var shown = root.clientsDetail.vpnClients ? Math.min(root.clientsDetail.vpnClients.length, 5) : 0
+              return "+" + (root.clientsDetail.vpn - shown) + " more on VPN"
+            }
+            color: root.detailColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
         }
 
         // Devices waiting for adoption. The rows are capped so a stack of

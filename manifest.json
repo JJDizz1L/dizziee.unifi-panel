@@ -32,6 +32,7 @@
       "showWifi": true,
       "showNetworks": true,
       "showVpn": true,
+      "showClients": false,
       "refreshIntervalSec": 5,
       "watch": true,
       "watchIntervalSec": 120,
@@ -72,6 +73,12 @@
         "type": "boolean",
         "label": "Show VPN servers and tunnels in the panel",
         "defaultValue": true
+      },
+      {
+        "key": "showClients",
+        "type": "boolean",
+        "label": "Fetch the client list for type breakdown and per-device counts",
+        "defaultValue": false
       },
       {
         "key": "refreshIntervalSec",

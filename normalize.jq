@@ -149,9 +149,31 @@ def health_clients:
       else {clients: (($wireless // 0) + ($wired // 0)), wireless: $wireless, wired: $wired} end
   end;
 
+# Client type for the breakdown: the API's enum, folded to the four kinds
+# the panel distinguishes. Anything else counts toward the total only.
+def client_kind:
+  . as $t
+  | if $t == "WIRED" then "wired"
+    elif $t == "WIRELESS" then "wireless"
+    elif $t == "VPN" then "vpn"
+    elif $t == "TELEPORT" then "teleport"
+    else "other" end;
+
+# Per-device client counts from the uplinkDeviceId the wired and wireless
+# rows carry. Keys are controller ids; rows without one (VPN, Teleport)
+# belong to no device.
+def clients_per_device:
+  reduce (.[] | select((.uplinkDeviceId // "") != "")) as $c ({};
+    .[$c.uplinkDeviceId] += 1);
+
 (.site // {}) as $site
 | gateway_stats as $stats
 | wan_state as $wan
+| (.clients // []) as $client_rows
+| (.clientsRequested // false) as $clients_requested
+| (as_number(.clientsTotal) // 0) as $clients_total
+| (if $clients_requested and $clients_total == 0
+   then ($client_rows | clients_per_device) else {} end) as $per_device
 | ((.devices // []) | map(
     (.state // "OFFLINE" | tostring) as $state
     | {
@@ -165,7 +187,8 @@ def health_clients:
         online: (($state | bucket) == "online"),
         features: (.features // []),
         kind: kind,
-        firmwareUpdatable: (.firmwareUpdatable // false)
+        firmwareUpdatable: (.firmwareUpdatable // false),
+        clients: ($per_device[.id // .macAddress // ""] // 0)
       }
   ) | sort_by(sort_key)) as $devices
 | ($devices | map(select(.kind == "gateway")) | .[0] // null) as $gateway
@@ -249,6 +272,30 @@ def health_clients:
         })) end) as $tunnels
       | if $servers == null and $tunnels == null then null
         else {servers: ($servers // []), tunnels: ($tunnels // [])} end),
+    # Connected clients from the opt-in /clients fetch. Unrequested, the
+    # block is null and the panel keeps its health-report totals. Past the
+    # row cap only the claimed count survives and the breakdown is nulls.
+    clientsDetail: (
+      if ($clients_requested | not) then null
+      elif $clients_total > 0 then
+        {count: $clients_total, wired: null, wireless: null, vpn: null,
+         teleport: null, guests: null, vpnClients: []}
+      else
+        ($client_rows | map(.type as $t | {
+           kind: ($t | client_kind),
+           guest: ((.access.type // "") == "GUEST"),
+           uplink: (.uplinkDeviceId // ""),
+           name: (.name // ""),
+           ip: (.ipAddress // "")
+         })) as $rows
+        | {count: ($rows | length),
+           wired: ($rows | map(select(.kind == "wired")) | length),
+           wireless: ($rows | map(select(.kind == "wireless")) | length),
+           vpn: ($rows | map(select(.kind == "vpn")) | length),
+           teleport: ($rows | map(select(.kind == "teleport")) | length),
+           guests: ($rows | map(select(.guest)) | length),
+           vpnClients: ($rows | map(select(.kind == "vpn"))
+                        | map({name: .name, ip: .ip})[:10])} end),
     summary: {
       devices: (if $device_total > 0 then $device_total else ($devices | length) end),
       online: ($devices | map(select(.bucket == "online")) | length),

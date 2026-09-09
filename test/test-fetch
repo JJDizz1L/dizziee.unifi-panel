@@ -53,6 +53,23 @@ sites = json.loads(os.environ["STUB_SITES"])
 mode = os.environ.get("STUB_MODE", "")
 log = open(os.environ["STUB_LOG"], "a")
 
+clients = [
+    {"id": "c1", "name": "Workstation", "type": "WIRED",
+     "ipAddress": "192.168.1.20", "macAddress": "aa:bb:cc:00:00:20",
+     "uplinkDeviceId": "d1", "access": {"type": "DEFAULT"},
+     "connectedAt": "2026-08-18T17:00:00Z"},
+    {"id": "c2", "name": "Phone", "type": "WIRELESS",
+     "ipAddress": "192.168.1.21", "macAddress": "aa:bb:cc:00:00:21",
+     "uplinkDeviceId": "d1", "access": {"type": "DEFAULT"},
+     "connectedAt": "2026-08-18T17:01:00Z"},
+    {"id": "c3", "name": "Guest Phone", "type": "WIRELESS",
+     "ipAddress": "192.168.1.22", "macAddress": "aa:bb:cc:00:00:22",
+     "uplinkDeviceId": "d2", "access": {"type": "GUEST"},
+     "connectedAt": "2026-08-18T17:02:00Z"},
+    {"id": "c4", "name": "Road Warrior", "type": "VPN",
+     "ipAddress": "10.0.0.2", "access": {"type": "DEFAULT"},
+     "connectedAt": "2026-08-18T17:03:00Z"}]
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def _send(self, code, body):
@@ -69,6 +86,10 @@ class H(BaseHTTPRequestHandler):
         p = self.path.split("?")[0]
         if p.endswith("/sites"):
             return self._send(200, {"data": sites, "totalCount": len(sites)})
+        if p.endswith("/clients"):
+            if mode == "manyclients":
+                return self._send(200, {"data": [], "totalCount": 5000})
+            return self._send(200, {"data": clients, "totalCount": len(clients)})
         if p.endswith("/info"):
             return self._send(200, {"applicationVersion": "10.6.101"})
         if p.endswith("/pending-devices"):
@@ -207,6 +228,39 @@ if jq -e '.error == null and (.site.name | length > 0) and .site.ref == "default
   ok "renders the fixture; a poll handed the site skips the lookup"
 else
   fail "renders the fixture; a poll handed the site skips the lookup" "$out ($(grep -cF 'sites?' "$work/requests") site list requests)"
+fi
+stop_stub
+
+# The opt-in client list: type breakdown with guest split, VPN names and
+# per-device counts joined by uplinkDeviceId (d1 takes two, d2 one).
+start_stub "$(jq -c '[.site]' "$TEST_DIR/fixtures/network.json")"
+out=$("$PLUGIN_DIR/unifi-fetch" --clients)
+if jq -e '.error == null and .clientsDetail.count == 4
+         and .clientsDetail.wired == 1 and .clientsDetail.wireless == 2
+         and .clientsDetail.vpn == 1 and .clientsDetail.teleport == 0
+         and .clientsDetail.guests == 1
+         and .clientsDetail.vpnClients[0].name == "Road Warrior"
+         and ([.devices[] | select(.id == "d1")][0].clients) == 2
+         and ([.devices[] | select(.id == "d2")][0].clients) == 1
+         and ([.devices[] | select(.id == "d4")][0].clients) == 0' \
+     >/dev/null 2>&1 <<<"$out" \
+   && (( $(grep -cF '/clients?' "$work/requests") == 1 )); then
+  ok "fetches the client list with --clients: breakdown and per-device join"
+else
+  fail "fetches the client list with --clients: breakdown and per-device join" "${out:0:300}"
+fi
+stop_stub
+
+# Past the row cap only the claimed total survives; the breakdown hides so
+# the panel shows the count instead of a partial split.
+start_stub "$(jq -c '[.site]' "$TEST_DIR/fixtures/network.json")" manyclients
+out=$("$PLUGIN_DIR/unifi-fetch" --clients)
+if jq -e '.error == null and .clientsDetail.count == 5000
+         and .clientsDetail.wired == null
+         and .clientsDetail.vpnClients == []' >/dev/null 2>&1 <<<"$out"; then
+  ok "falls back to the claimed client count past the row cap"
+else
+  fail "falls back to the claimed client count past the row cap" "${out:0:300}"
 fi
 stop_stub
 

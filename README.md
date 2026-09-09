@@ -108,6 +108,17 @@ networks, vpn, clients).
 and `shellcheck --severity=warning unifi-fetch unifi-login lib/unifi-common.sh
 test/test-normalize test/test-manifest test/test-fetch test/lint`.
 
+## Gallery
+
+<img width="603" height="781" alt="dizziee unifi-panel-2" src="https://github.com/user-attachments/assets/8a4bd552-0f2d-4489-a3d5-b5ba50e575e6" />
+<img width="600" height="331" alt="dizziee unifi-panel-3" src="https://github.com/user-attachments/assets/c8f34284-cac8-4eb3-9e85-786723b584ea" />
+<img width="605" height="772" alt="dizziee unifi-panel-4" src="https://github.com/user-attachments/assets/bb174a8f-eb19-43de-96b9-101271c52428" />
+<img width="603" height="440" alt="dizziee unifi-panel-5" src="https://github.com/user-attachments/assets/c0c54999-f578-4299-abe8-bca78672ed2f" />
+<img width="602" height="398" alt="dizziee unifi-panel-6" src="https://github.com/user-attachments/assets/49879ef8-30cb-4ae7-9518-4fbc67cd5b8f" />
+<img width="602" height="327" alt="dizziee unifi-panel-7" src="https://github.com/user-attachments/assets/d6c2ac62-a982-4cf7-8e50-3b4755e2069d" />
+<img width="598" height="515" alt="dizziee unifi-panel-8" src="https://github.com/user-attachments/assets/abe1e2ab-76ec-4582-9103-dd10e35bbbcd" />
+
+
 ## License
 
 MIT. Not affiliated with, endorsed by, or supported by Ubiquiti Inc.; UniFi is

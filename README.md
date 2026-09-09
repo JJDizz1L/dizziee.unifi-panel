@@ -79,7 +79,8 @@ else, give the full URL ending in `/integration/v1` and it is used as given.
 
 ## Settings
 
-Under the widget's settings in the bar:
+Under the widget's settings in the bar — or right-click the bar icon (S in
+the panel) to edit them in the panel itself, where S saves:
 
 - Show the connected client count on the bar icon
 - Fetch the client list for type breakdown, signal strength, satisfaction and per-device counts

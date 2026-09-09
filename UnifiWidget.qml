@@ -136,6 +136,86 @@ Panel {
   readonly property bool notifyFirmware: boolSetting("notifyFirmware", true)
   readonly property int notifyCooldownMs: intSetting("notifyCooldownMin", 10, 1, 240) * 60000
 
+  // In-panel settings, opened with a right-click on the bar icon: edits land
+  // in a draft first and only reach the stored settings on save (S or the
+  // Save button), so a half-changed row never half-applies.
+  property bool settingsMode: false
+  property var draftSettings: ({})
+  property string settingsStatusText: ""
+
+  function normalizedSettings(source) {
+    var src = source || {}
+    function boolOf(key, fallback) {
+      var v = src[key]
+      if (v === undefined || v === null) return fallback
+      if (typeof v === "string") return v !== "false" && v !== "0" && v !== ""
+      return v !== false
+    }
+    function intOf(key, fallback, min, max) {
+      var v = parseInt(src[key], 10)
+      if (!isFinite(v)) return fallback
+      return Math.max(min, Math.min(max, v))
+    }
+    // Exactly the manifest schema: unknown keys are dropped on save.
+    return {
+      showBarClients: boolOf("showBarClients", false),
+      showGatewayStats: boolOf("showGatewayStats", true),
+      showWifi: boolOf("showWifi", true),
+      showNetworks: boolOf("showNetworks", true),
+      showVpn: boolOf("showVpn", true),
+      showClients: boolOf("showClients", false),
+      refreshIntervalSec: intOf("refreshIntervalSec", 180, 1, 300),
+      watch: boolOf("watch", true),
+      watchIntervalSec: intOf("watchIntervalSec", 120, 30, 3600),
+      notifyOffline: boolOf("notifyOffline", true),
+      notifyOnline: boolOf("notifyOnline", true),
+      notifyWan: boolOf("notifyWan", true),
+      notifyPending: boolOf("notifyPending", true),
+      notifyFirmware: boolOf("notifyFirmware", true),
+      notifyCooldownMin: intOf("notifyCooldownMin", 10, 1, 240)
+    }
+  }
+
+  function openSettings() {
+    draftSettings = normalizedSettings(settings)
+    settingsStatusText = ""
+    settingsMode = true
+    open()
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function showMain() {
+    settingsMode = false
+    settingsStatusText = ""
+  }
+
+  function saveSettings() {
+    var next = normalizedSettings(draftSettings)
+    draftSettings = next
+    settings = next
+    // The shell persists this to shell.json when it can; otherwise the
+    // answer lasts the session. Either way the next poll uses it, so a
+    // flipped fetch flag (showClients) applies at once.
+    if (bar && bar.shell && typeof bar.shell.updateEntryInline === "function") {
+      bar.shell.updateEntryInline(moduleName, next)
+      settingsStatusText = "Saved"
+    } else {
+      settingsStatusText = "Saved for this session"
+    }
+    refresh()
+  }
+
+  function draftValue(key, fallback) {
+    var value = draftSettings ? draftSettings[key] : undefined
+    return value === undefined || value === null ? fallback : value
+  }
+
+  function setDraftValue(key, value) {
+    var next = normalizedSettings(draftSettings)
+    next[key] = value
+    draftSettings = next
+  }
+
   // Qt.resolvedUrl yields a file:// URL; Process wants a plain path.
   readonly property string backendPath:
     Qt.resolvedUrl("unifi-fetch").toString().replace(/^file:\/\//, "")
@@ -963,7 +1043,8 @@ Panel {
     }
 
     onPressed: function(buttonCode) {
-      if (buttonCode === Qt.MiddleButton) root.refresh()
+      if (buttonCode === Qt.RightButton) root.openSettings()
+      else if (buttonCode === Qt.MiddleButton) root.refresh()
       else root.toggle()
     }
   }
@@ -980,10 +1061,13 @@ Panel {
     contentWidth: networkPanel.fittedContentWidth(Style.space(400))
     contentHeight: networkPanel.fittedContentHeight(column.implicitHeight, root.panelMaxHeight)
 
-    PanelKeyCatcher {
-      id: keyCatcher
-      anchors.fill: parent
-      onCloseRequested: root.close()
+      PanelKeyCatcher {
+        id: keyCatcher
+        anchors.fill: parent
+        // NumberField editors eat their own keys while focused, so panel
+        // shortcuts stay out of the way until focus leaves the field.
+        blocked: root.settingsMode && settingsColumn.editorActive
+        onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       // h/l and the arrow keys step sideways through tabs; j/k and the
       // arrow keys scroll the device list, one row at a time.
@@ -1006,6 +1090,11 @@ Panel {
         if (heldKey === key) return
         heldKey = key
         if (key === "r") root.refresh()
+        // S saves while editing settings, and opens them otherwise.
+        if (key === "s") {
+          if (root.settingsMode) root.saveSettings()
+          else root.openSettings()
+        }
         var digit = parseInt(key, 10)
         if (digit >= 1 && digit <= root.tabs.length)
           root.showTab(root.tabs[digit - 1].key)
@@ -1062,14 +1151,15 @@ Panel {
             id: headerLabels
             anchors.left: headerMark.right
             anchors.leftMargin: Style.space(12)
-            anchors.right: parent.right
+            anchors.right: root.settingsMode ? headerActions.left : parent.right
+            anchors.rightMargin: root.settingsMode ? Style.space(8) : 0
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(2)
 
             Text {
               textFormat: Text.PlainText
               width: parent.width
-              text: "UniFi Panel"
+              text: root.settingsMode ? "UniFi Settings" : "UniFi Panel"
               color: Color.popups.text
               font.family: Style.font.family
               font.pixelSize: Style.font.title
@@ -1087,13 +1177,248 @@ Panel {
               font.pixelSize: Style.font.caption
             }
           }
+
+          Row {
+            id: headerActions
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(8)
+            visible: root.settingsMode
+
+            Button {
+              text: "Panel"
+              bordered: true
+              fontSize: Style.font.caption
+              onClicked: root.showMain()
+            }
+
+            Button {
+              text: "Save"
+              bordered: true
+              fontSize: Style.font.caption
+              onClicked: root.saveSettings()
+            }
+          }
+        }
+
+        // In-panel settings editors, opened with a right-click on the bar
+        // icon. Everything here edits the draft; Save (or S) writes it.
+        Column {
+          id: settingsColumn
+          width: parent.width
+          spacing: Style.space(10)
+          visible: root.settingsMode
+
+          readonly property bool editorActive:
+            refreshField.field.activeFocus
+            || watchField.field.activeFocus
+            || cooldownField.field.activeFocus
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            text: "Display"
+            color: Color.popups.text
+            font.family: Style.font.family
+            font.pixelSize: Style.font.body
+            font.bold: true
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Client count on the bar icon"
+            checked: root.draftValue("showBarClients", false) === true
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onClicked: root.setDraftValue("showBarClients", root.draftValue("showBarClients", false) !== true)
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Gateway graphs and health"
+            checked: root.draftValue("showGatewayStats", true) === true
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onClicked: root.setDraftValue("showGatewayStats", root.draftValue("showGatewayStats", true) !== true)
+          }
+
+          Toggle {
+            width: parent.width
+            label: "WiFi tab"
+            checked: root.draftValue("showWifi", true) === true
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onClicked: root.setDraftValue("showWifi", root.draftValue("showWifi", true) !== true)
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Networks tab"
+            checked: root.draftValue("showNetworks", true) === true
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onClicked: root.setDraftValue("showNetworks", root.draftValue("showNetworks", true) !== true)
+          }
+
+          Toggle {
+            width: parent.width
+            label: "VPN tab"
+            checked: root.draftValue("showVpn", true) === true
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onClicked: root.setDraftValue("showVpn", root.draftValue("showVpn", true) !== true)
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Client list with signal and per-device counts"
+            checked: root.draftValue("showClients", false) === true
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onClicked: root.setDraftValue("showClients", root.draftValue("showClients", false) !== true)
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            text: "Polling"
+            color: Color.popups.text
+            font.family: Style.font.family
+            font.pixelSize: Style.font.body
+            font.bold: true
+          }
+
+          NumberField {
+            id: refreshField
+            label: "Refresh while open (seconds)"
+            value: Number(root.draftValue("refreshIntervalSec", 180))
+            from: 1
+            to: 300
+            stepSize: 30
+            fieldWidth: parent.width
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onModified: function(value) { root.setDraftValue("refreshIntervalSec", value) }
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Background polling for badge and notifications"
+            checked: root.draftValue("watch", true) === true
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onClicked: root.setDraftValue("watch", root.draftValue("watch", true) !== true)
+          }
+
+          NumberField {
+            id: watchField
+            label: "Background poll interval (seconds)"
+            value: Number(root.draftValue("watchIntervalSec", 120))
+            from: 30
+            to: 3600
+            stepSize: 30
+            fieldWidth: parent.width
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onModified: function(value) { root.setDraftValue("watchIntervalSec", value) }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            text: "Notifications"
+            color: Color.popups.text
+            font.family: Style.font.family
+            font.pixelSize: Style.font.body
+            font.bold: true
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Device goes offline"
+            checked: root.draftValue("notifyOffline", true) === true
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onClicked: root.setDraftValue("notifyOffline", root.draftValue("notifyOffline", true) !== true)
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Device back online"
+            checked: root.draftValue("notifyOnline", true) === true
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onClicked: root.setDraftValue("notifyOnline", root.draftValue("notifyOnline", true) !== true)
+          }
+
+          Toggle {
+            width: parent.width
+            label: "WAN link down or recovered"
+            checked: root.draftValue("notifyWan", true) === true
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onClicked: root.setDraftValue("notifyWan", root.draftValue("notifyWan", true) !== true)
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Device waiting for adoption"
+            checked: root.draftValue("notifyPending", true) === true
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onClicked: root.setDraftValue("notifyPending", root.draftValue("notifyPending", true) !== true)
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Firmware update available"
+            checked: root.draftValue("notifyFirmware", true) === true
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onClicked: root.setDraftValue("notifyFirmware", root.draftValue("notifyFirmware", true) !== true)
+          }
+
+          NumberField {
+            id: cooldownField
+            label: "Minutes before re-notifying"
+            value: Number(root.draftValue("notifyCooldownMin", 10))
+            from: 1
+            to: 240
+            stepSize: 5
+            fieldWidth: parent.width
+            foreground: Color.popups.text
+            fontFamily: Style.font.family
+            onModified: function(value) { root.setDraftValue("notifyCooldownMin", value) }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            visible: root.settingsStatusText !== ""
+            horizontalAlignment: Text.AlignHCenter
+            text: root.settingsStatusText
+            color: Color.accent
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            text: "S saves  ·  Esc closes"
+            color: root.detailColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
         }
 
         // Sign-in prompt takes over the panel: nothing else can work without it.
+        // (Settings has its own view, so it steps aside for that too.)
         Column {
           width: parent.width
           spacing: Style.space(6)
-          visible: root.needsLogin
+          visible: root.needsLogin && !root.settingsMode
 
           Text {
 
@@ -1142,7 +1467,7 @@ Panel {
           textFormat: Text.PlainText
           width: parent.width
           wrapMode: Text.WordWrap
-          visible: !root.needsLogin && root.lastError !== ""
+          visible: !root.needsLogin && root.lastError !== "" && !root.settingsMode
           text: root.lastError
           color: Color.urgent
           font.family: Style.font.family
@@ -1153,7 +1478,7 @@ Panel {
 
           textFormat: Text.PlainText
           width: parent.width
-          visible: !root.initialized && root.lastError === ""
+          visible: !root.initialized && root.lastError === "" && !root.settingsMode
           text: "Loading…"
           color: root.detailColor
           font.family: Style.font.family
@@ -1166,6 +1491,7 @@ Panel {
           width: parent.width
           spacing: Style.space(8)
           visible: root.initialized && !root.needsLogin && root.lastError === ""
+            && !root.settingsMode
 
           WatchSegment {
             text: root.summary.offline > 0
@@ -1212,6 +1538,7 @@ Panel {
           width: parent.width
           spacing: Style.space(12)
           visible: root.initialized && !root.needsLogin && root.lastError === ""
+            && !root.settingsMode
 
           Repeater {
             model: root.tabs
@@ -1262,8 +1589,10 @@ Panel {
           textFormat: Text.PlainText
           width: parent.width
           visible: root.initialized && !root.needsLogin && root.lastError === ""
+            && !root.settingsMode
             && !root.hasClientsDetail
             && root.activeTab === "CLIENTS"
+            && !root.settingsMode
             && root.summary.clients !== null && root.summary.clients !== undefined
           text: {
             var parts = [root.summary.clients + " clients"]
@@ -1285,8 +1614,10 @@ Panel {
           width: parent.width
           spacing: Style.space(2)
           visible: root.initialized && !root.needsLogin && root.lastError === ""
+            && !root.settingsMode
             && root.hasClientsDetail
             && root.activeTab === "CLIENTS"
+            && !root.settingsMode
 
           Text {
             textFormat: Text.PlainText
@@ -1426,7 +1757,9 @@ Panel {
           width: parent.width
           spacing: Style.space(2)
           visible: root.initialized && !root.needsLogin && root.lastError === ""
+            && !root.settingsMode
             && root.activeTab === "OVERVIEW"
+            && !root.settingsMode
             && root.pendingSummary !== ""
 
           Text {
@@ -1484,6 +1817,7 @@ Panel {
           spacing: Style.space(2)
           visible: root.showWifi && root.initialized && !root.needsLogin && root.lastError === ""
             && root.activeTab === "WIFI"
+            && !root.settingsMode
             && root.wifiSummary !== ""
 
           Text {
@@ -1583,6 +1917,7 @@ Panel {
           spacing: Style.space(2)
           visible: root.showNetworks && root.initialized && !root.needsLogin && root.lastError === ""
             && root.activeTab === "NETWORKS"
+            && !root.settingsMode
             && root.networksSummary !== ""
 
           Text {
@@ -1654,6 +1989,7 @@ Panel {
           spacing: Style.space(2)
           visible: root.showVpn && root.initialized && !root.needsLogin && root.lastError === ""
             && root.activeTab === "VPN"
+            && !root.settingsMode
             && root.vpnSummary !== ""
 
           Text {
@@ -1716,7 +2052,9 @@ Panel {
           // Gateways list here like everything else, so there is no
           // single-gateway special case anymore.
           visible: root.initialized && !root.needsLogin && root.lastError === ""
+            && !root.settingsMode
             && root.activeTab === "DEVICES"
+            && !root.settingsMode
             && root.deviceTabDevices.length === 0 && !root.oversized
           text: "No devices on this site."
           color: root.detailColor
@@ -1731,7 +2069,9 @@ Panel {
           width: parent.width
           spacing: Style.space(10)
           visible: root.initialized && !root.needsLogin && root.lastError === ""
+            && !root.settingsMode
             && root.activeTab === "OVERVIEW"
+            && !root.settingsMode
 
           Repeater {
             model: root.gatewayDevices
@@ -1762,7 +2102,9 @@ Panel {
           width: parent.width
           spacing: Style.space(8)
           visible: root.initialized && !root.needsLogin && root.lastError === ""
+            && !root.settingsMode
             && root.activeTab === "DEVICES"
+            && !root.settingsMode
             && root.oversized
 
           Text {
@@ -1799,7 +2141,7 @@ Panel {
           clip: true
           boundsBehavior: Flickable.StopAtBounds
           interactive: contentHeight > height
-          visible: root.activeTab === "DEVICES" && count > 0
+          visible: root.activeTab === "DEVICES" && !root.settingsMode && count > 0
 
           // One row plus spacing, for keyboard stepping.
           readonly property real rowHeight: (contentItem.children.length > 0
@@ -1834,6 +2176,7 @@ Panel {
 
           textFormat: Text.PlainText
           width: parent.width
+          visible: !root.settingsMode
           text: {
             // nowMs ticks every 10 s so the age counts live; without it the
             // line would freeze until the next poll.

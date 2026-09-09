@@ -90,7 +90,7 @@ the panel) to edit them in the panel itself, where S saves:
 - Show VPN servers and tunnels in the panel
 - Refresh interval while the panel is open (3 minutes), and the background poll interval
 - Notify when a device goes offline / comes back online, with a per-device
-  cooldown
+  cooldown (both off by default)
 - Notify when a WAN link goes down / recovers (same cooldown)
 - Notify when a device waits for adoption
 - Notify when a firmware update becomes available for a device

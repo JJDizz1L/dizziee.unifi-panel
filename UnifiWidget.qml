@@ -122,19 +122,19 @@ Panel {
   readonly property bool showWifi: boolSetting("showWifi", true)
   readonly property bool showNetworks: boolSetting("showNetworks", true)
   readonly property bool showVpn: boolSetting("showVpn", true)
-  readonly property bool showClients: boolSetting("showClients", false)
+  readonly property bool showClients: boolSetting("showClients", true)
   // Fast while the panel is open so the gateway's rates and load feel live:
   // the controller heartbeats every ~20 s, so most polls repeat the last
   // sample, but each is four small LAN requests (the report is cached).
   readonly property int refreshIntervalMs: intSetting("refreshIntervalSec", 180, 1, 300) * 1000
   readonly property bool watchEnabled: boolSetting("watch", true)
   readonly property int watchIntervalMs: intSetting("watchIntervalSec", 120, 30, 3600) * 1000
-  readonly property bool notifyOffline: boolSetting("notifyOffline", true)
-  readonly property bool notifyOnline: boolSetting("notifyOnline", true)
+  readonly property bool notifyOffline: boolSetting("notifyOffline", false)
+  readonly property bool notifyOnline: boolSetting("notifyOnline", false)
   readonly property bool notifyWan: boolSetting("notifyWan", true)
   readonly property bool notifyPending: boolSetting("notifyPending", true)
   readonly property bool notifyFirmware: boolSetting("notifyFirmware", true)
-  readonly property int notifyCooldownMs: intSetting("notifyCooldownMin", 10, 1, 240) * 60000
+  readonly property int notifyCooldownMs: intSetting("notifyCooldownMin", 30, 1, 240) * 60000
 
   // In-panel settings, opened with a right-click on the bar icon: edits land
   // in a draft first and only reach the stored settings on save (S or the
@@ -142,6 +142,28 @@ Panel {
   property bool settingsMode: false
   property var draftSettings: ({})
   property string settingsStatusText: ""
+  // Keyboard cursor over the visible settings editors; focus is the
+  // highlight, so no extra visuals are needed.
+  property int settingsFocusIndex: 0
+  // Settings tabs keep the editors inside the panel height: one group at a
+  // time, like the main tabs.
+  readonly property var settingsTabs: [
+    { key: "DISPLAY", label: "Display" },
+    { key: "POLLING", label: "Polling" },
+    { key: "NOTIFICATIONS", label: "Notifications" }
+  ]
+  property string settingsTab: "DISPLAY"
+
+  function cycleSettingsTab(direction) {
+    var at = 0
+    for (var i = 0; i < settingsTabs.length; i++) {
+      if (settingsTabs[i].key === settingsTab) {
+        at = i
+        break
+      }
+    }
+    settingsTab = settingsTabs[(at + direction + settingsTabs.length) % settingsTabs.length].key
+  }
 
   function normalizedSettings(source) {
     var src = source || {}
@@ -163,25 +185,29 @@ Panel {
       showWifi: boolOf("showWifi", true),
       showNetworks: boolOf("showNetworks", true),
       showVpn: boolOf("showVpn", true),
-      showClients: boolOf("showClients", false),
+      showClients: boolOf("showClients", true),
       refreshIntervalSec: intOf("refreshIntervalSec", 180, 1, 300),
       watch: boolOf("watch", true),
       watchIntervalSec: intOf("watchIntervalSec", 120, 30, 3600),
-      notifyOffline: boolOf("notifyOffline", true),
-      notifyOnline: boolOf("notifyOnline", true),
+      notifyOffline: boolOf("notifyOffline", false),
+      notifyOnline: boolOf("notifyOnline", false),
       notifyWan: boolOf("notifyWan", true),
       notifyPending: boolOf("notifyPending", true),
       notifyFirmware: boolOf("notifyFirmware", true),
-      notifyCooldownMin: intOf("notifyCooldownMin", 10, 1, 240)
+      notifyCooldownMin: intOf("notifyCooldownMin", 30, 1, 240)
     }
   }
 
   function openSettings() {
     draftSettings = normalizedSettings(settings)
     settingsStatusText = ""
+    settingsTab = "DISPLAY"
+    settingsFocusIndex = 0
     settingsMode = true
     open()
-    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    // Focus gives the first toggle its highlight; the key catcher still
+    // sees every key first, so shortcuts keep working.
+    Qt.callLater(function() { moveSettingsFocus(0) })
   }
 
   function showMain() {
@@ -214,6 +240,46 @@ Panel {
     var next = normalizedSettings(draftSettings)
     next[key] = value
     draftSettings = next
+  }
+
+  // Focusable editors in the visible settings group, in order: toggles
+  // themselves, number fields via their inner input.
+  function settingsFocusables() {
+    var group = null
+    if (settingsTab === "POLLING") group = pollingGroup
+    else if (settingsTab === "NOTIFICATIONS") group = notifyGroup
+    else group = displayGroup
+    if (!group) return []
+    var out = []
+    for (var i = 0; i < group.children.length; i++) {
+      var c = group.children[i]
+      if (!c || !c.visible) continue
+      if (typeof c.clicked === "function") out.push(c)
+      else if (c.field) out.push(c.field)
+    }
+    return out
+  }
+
+  function moveSettingsFocus(direction) {
+    var editors = settingsFocusables()
+    if (editors.length === 0) return
+    settingsFocusIndex = Math.max(0, Math.min(editors.length - 1, settingsFocusIndex + direction))
+    var item = editors[settingsFocusIndex]
+    if (item) item.forceActiveFocus()
+  }
+
+  // Space/Return never reach a focused toggle — the key catcher consumes
+  // them first — so an explicit activation re-emits the toggle's own click.
+  // A focused number field is already editing and needs nothing.
+  function activateSettingsEditor() {
+    var editors = settingsFocusables()
+    for (var i = 0; i < editors.length; i++) {
+      if (editors[i] && editors[i].activeFocus) {
+        settingsFocusIndex = i
+        if (typeof editors[i].clicked === "function") editors[i].clicked()
+        return
+      }
+    }
   }
 
   // Qt.resolvedUrl yields a file:// URL; Process wants a plain path.
@@ -1068,12 +1134,22 @@ Panel {
         // shortcuts stay out of the way until focus leaves the field.
         blocked: root.settingsMode && settingsColumn.editorActive
         onCloseRequested: root.close()
+        onActivateRequested: {
+          if (root.settingsMode) root.activateSettingsEditor()
+        }
       onTabRequested: function(direction) { root.switchPanel(direction) }
       // h/l and the arrow keys step sideways through tabs; j/k and the
       // arrow keys scroll the device list, one row at a time.
       onMoveRequested: function(dx, dy) {
         if (dx !== 0) {
-          root.cycleTab(dx)
+          if (root.settingsMode) root.cycleSettingsTab(dx)
+          else root.cycleTab(dx)
+          return
+        }
+        // j/k (or arrows) step the settings highlight while editing —
+        // unless a number field owns the focus and is eating its own keys.
+        if (root.settingsMode) {
+          if (dy !== 0 && !settingsColumn.editorActive) root.moveSettingsFocus(dy)
           return
         }
         if (dy === 0 || !deviceList.interactive) return
@@ -1091,13 +1167,19 @@ Panel {
         heldKey = key
         if (key === "r") root.refresh()
         // S saves while editing settings, and opens them otherwise.
+        // P steps back to the panel from settings.
         if (key === "s") {
           if (root.settingsMode) root.saveSettings()
           else root.openSettings()
         }
+        if (key === "p" && root.settingsMode) root.showMain()
         var digit = parseInt(key, 10)
-        if (digit >= 1 && digit <= root.tabs.length)
+        if (root.settingsMode) {
+          if (digit >= 1 && digit <= root.settingsTabs.length)
+            root.settingsTab = root.settingsTabs[digit - 1].key
+        } else if (digit >= 1 && digit <= root.tabs.length) {
           root.showTab(root.tabs[digit - 1].key)
+        }
       }
 
       Column {
@@ -1151,8 +1233,8 @@ Panel {
             id: headerLabels
             anchors.left: headerMark.right
             anchors.leftMargin: Style.space(12)
-            anchors.right: root.settingsMode ? headerActions.left : parent.right
-            anchors.rightMargin: root.settingsMode ? Style.space(8) : 0
+            anchors.right: headerActions.left
+            anchors.rightMargin: Style.space(8)
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(2)
 
@@ -1183,12 +1265,20 @@ Panel {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(8)
-            visible: root.settingsMode
+
+            PanelActionButton {
+              visible: !root.settingsMode
+              iconText: "\uF013"
+              tooltipText: "Settings"
+              foreground: Color.popups.text
+              onClicked: root.openSettings()
+            }
 
             Button {
               text: "Panel"
               bordered: true
               fontSize: Style.font.caption
+              visible: root.settingsMode
               onClicked: root.showMain()
             }
 
@@ -1196,6 +1286,7 @@ Panel {
               text: "Save"
               bordered: true
               fontSize: Style.font.caption
+              visible: root.settingsMode
               onClicked: root.saveSettings()
             }
           }
@@ -1214,15 +1305,58 @@ Panel {
             || watchField.field.activeFocus
             || cooldownField.field.activeFocus
 
-          Text {
-            textFormat: Text.PlainText
+          // Tab strip, underline style like the main one: the active tab
+          // carries the accent.
+          Flow {
             width: parent.width
-            text: "Display"
-            color: Color.popups.text
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-            font.bold: true
+            spacing: Style.space(12)
+
+            Repeater {
+              model: root.settingsTabs
+
+              Item {
+                id: settingsTabItem
+                required property var modelData
+                width: settingsTabLabel.implicitWidth
+                height: settingsTabLabel.implicitHeight + Style.space(4)
+
+                Text {
+                  id: settingsTabLabel
+                  textFormat: Text.PlainText
+                  anchors.top: parent.top
+                  text: settingsTabItem.modelData.label
+                  color: root.settingsTab === settingsTabItem.modelData.key ? Color.popups.text : root.detailColor
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                  font.bold: root.settingsTab === settingsTabItem.modelData.key
+                }
+
+                Rectangle {
+                  anchors.left: parent.left
+                  anchors.right: parent.right
+                  anchors.bottom: parent.bottom
+                  height: 2
+                  radius: 1
+                  visible: root.settingsTab === settingsTabItem.modelData.key
+                  color: Color.accent
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  acceptedButtons: Qt.LeftButton
+                  cursorShape: Qt.PointingHandCursor
+                  hoverEnabled: true
+                  onClicked: root.settingsTab = settingsTabItem.modelData.key
+                }
+              }
+            }
           }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(10)
+            visible: root.settingsTab === "DISPLAY"
+            id: displayGroup
 
           Toggle {
             width: parent.width
@@ -1271,22 +1405,19 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "Client list with signal and per-device counts"
-            checked: root.draftValue("showClients", false) === true
+            label: "Client list with signal"
+            checked: root.draftValue("showClients", true) === true
             foreground: Color.popups.text
             fontFamily: Style.font.family
-            onClicked: root.setDraftValue("showClients", root.draftValue("showClients", false) !== true)
+            onClicked: root.setDraftValue("showClients", root.draftValue("showClients", true) !== true)
+          }
           }
 
-          Text {
-            textFormat: Text.PlainText
+          Column {
             width: parent.width
-            text: "Polling"
-            color: Color.popups.text
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-            font.bold: true
-          }
+            spacing: Style.space(10)
+            visible: root.settingsTab === "POLLING"
+            id: pollingGroup
 
           NumberField {
             id: refreshField
@@ -1303,7 +1434,7 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "Background polling for badge and notifications"
+            label: "Background polling"
             checked: root.draftValue("watch", true) === true
             foreground: Color.popups.text
             fontFamily: Style.font.family
@@ -1322,33 +1453,30 @@ Panel {
             fontFamily: Style.font.family
             onModified: function(value) { root.setDraftValue("watchIntervalSec", value) }
           }
-
-          Text {
-            textFormat: Text.PlainText
-            width: parent.width
-            text: "Notifications"
-            color: Color.popups.text
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-            font.bold: true
           }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(10)
+            visible: root.settingsTab === "NOTIFICATIONS"
+            id: notifyGroup
 
           Toggle {
             width: parent.width
             label: "Device goes offline"
-            checked: root.draftValue("notifyOffline", true) === true
+            checked: root.draftValue("notifyOffline", false) === true
             foreground: Color.popups.text
             fontFamily: Style.font.family
-            onClicked: root.setDraftValue("notifyOffline", root.draftValue("notifyOffline", true) !== true)
+            onClicked: root.setDraftValue("notifyOffline", root.draftValue("notifyOffline", false) !== true)
           }
 
           Toggle {
             width: parent.width
             label: "Device back online"
-            checked: root.draftValue("notifyOnline", true) === true
+            checked: root.draftValue("notifyOnline", false) === true
             foreground: Color.popups.text
             fontFamily: Style.font.family
-            onClicked: root.setDraftValue("notifyOnline", root.draftValue("notifyOnline", true) !== true)
+            onClicked: root.setDraftValue("notifyOnline", root.draftValue("notifyOnline", false) !== true)
           }
 
           Toggle {
@@ -1381,7 +1509,7 @@ Panel {
           NumberField {
             id: cooldownField
             label: "Minutes before re-notifying"
-            value: Number(root.draftValue("notifyCooldownMin", 10))
+            value: Number(root.draftValue("notifyCooldownMin", 30))
             from: 1
             to: 240
             stepSize: 5
@@ -1389,6 +1517,7 @@ Panel {
             foreground: Color.popups.text
             fontFamily: Style.font.family
             onModified: function(value) { root.setDraftValue("notifyCooldownMin", value) }
+          }
           }
 
           Text {
@@ -1406,7 +1535,7 @@ Panel {
             textFormat: Text.PlainText
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
-            text: "S saves  ·  Esc closes"
+            text: "j/k move  ·  Space toggles  ·  P panel  ·  S saves  ·  Esc closes"
             color: root.detailColor
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
@@ -2193,6 +2322,18 @@ Panel {
           color: root.detailColor
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          visible: !root.settingsMode
+          horizontalAlignment: Text.AlignHCenter
+          elide: Text.ElideRight
+          text: "Tip: h/l or ←/→ tabs  ·  j/k or ↑/↓ scroll  ·  1–6 jump  ·  S settings  ·  R refresh"
+          color: root.detailColor
+          font.family: Style.font.family
+          font.pixelSize: Math.max(8, Math.round(Style.font.caption * 0.9))
         }
       }
     }

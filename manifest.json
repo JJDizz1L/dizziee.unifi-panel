@@ -32,16 +32,16 @@
       "showWifi": true,
       "showNetworks": true,
       "showVpn": true,
-      "showClients": false,
+      "showClients": true,
       "refreshIntervalSec": 180,
       "watch": true,
       "watchIntervalSec": 120,
-      "notifyOffline": true,
-      "notifyOnline": true,
+      "notifyOffline": false,
+      "notifyOnline": false,
       "notifyWan": true,
       "notifyPending": true,
       "notifyFirmware": true,
-      "notifyCooldownMin": 10
+      "notifyCooldownMin": 30
     },
     "schema": [
       {
@@ -78,7 +78,7 @@
         "key": "showClients",
         "type": "boolean",
         "label": "Fetch the client list for type breakdown and per-device counts",
-        "defaultValue": false
+        "defaultValue": true
       },
       {
         "key": "refreshIntervalSec",
@@ -108,13 +108,13 @@
         "key": "notifyOffline",
         "type": "boolean",
         "label": "Notify when a device goes offline",
-        "defaultValue": true
+        "defaultValue": false
       },
       {
         "key": "notifyOnline",
         "type": "boolean",
         "label": "Notify when a device comes back online",
-        "defaultValue": true
+        "defaultValue": false
       },
       {
         "key": "notifyWan",
@@ -141,7 +141,7 @@
         "min": 1,
         "max": 240,
         "step": 1,
-        "defaultValue": 10
+        "defaultValue": 30
       }
     ]
   }

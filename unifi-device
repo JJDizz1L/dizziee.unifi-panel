@@ -1,0 +1,74 @@
+#!/bin/bash
+
+# Fetch one adopted device's detail and latest statistics and print the small
+# model DeviceDetail renders. The widget runs this when a device row is
+# expanded, so detail loads on demand rather than on every poll.
+#
+# Usage: unifi-device --device=<id>
+#
+# Prints {"detail":..., "stats":...} — either side null when its request
+# failed — or {"error":"…"} on failure, exiting 0 either way like
+# unifi-fetch. The site id comes from the stored config, so no lookup runs.
+# Uses the official Network Integration API (Network 9.0+); see unifi-fetch.
+
+set -uo pipefail
+umask 077
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+readonly NORMALIZE_DEVICE="$SCRIPT_DIR/normalize-device.jq"
+
+# shellcheck source=lib/unifi-common.sh
+source "$SCRIPT_DIR/lib/unifi-common.sh" || {
+  printf '{"error":"lib/unifi-common.sh is missing from the plugin folder"}\n'
+  exit 0
+}
+
+unifi_require_commands
+[[ -r $NORMALIZE_DEVICE ]] || die "normalize-device.jq is missing from the plugin folder"
+
+DEVICE=""
+for arg in "$@"; do
+  case "$arg" in
+    --device=*) DEVICE="${arg#--device=}" ;;
+    *) die "unifi-device takes only --device=<id>" ;;
+  esac
+done
+
+unifi_load_config || die_needs_login "No UniFi controller configured"
+API_KEY="$(unifi_api_key)"
+[[ -n $API_KEY ]] || die_needs_login "No UniFi API key stored"
+
+site_id="$UNIFI_SITE"
+unifi_is_token "$site_id" ||
+  die_needs_login "No usable site id is stored — run unifi-login again"
+# The id arrives from the widget, which learned it from controller data, so
+# it is checked like every other controller identifier before reaching a URL.
+unifi_is_token "$DEVICE" || die "No usable device id was given"
+
+detail=null
+unifi_http "/sites/$site_id/devices/$DEVICE" "$API_KEY"
+if reason=$(unifi_describe_http_failure); then
+  case "$UNIFI_HTTP_CODE" in
+    401|403) die_needs_login "$reason" ;;
+    404) die "The controller has no such device" ;;
+    *) die "$reason" ;;
+  esac
+fi
+jq -e 'type == "object"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY" ||
+  die "The controller returned a malformed response for the device"
+detail="$UNIFI_HTTP_BODY"
+
+# Statistics are a bonus: without them the detail still renders, just
+# without the load figures and radio retry rates.
+stats=null
+unifi_http "/sites/$site_id/devices/$DEVICE/statistics/latest" "$API_KEY"
+if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e 'type == "object"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
+  stats="$UNIFI_HTTP_BODY"
+fi
+
+unset API_KEY
+
+jq -n --argjson detail "$detail" --argjson stats "$stats" \
+  '{detail: $detail, stats: $stats}' |
+  jq -f "$NORMALIZE_DEVICE" 2>/dev/null || die "Could not interpret the controller response"

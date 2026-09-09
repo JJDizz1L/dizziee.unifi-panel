@@ -328,6 +328,23 @@ fi
 check "a normal document is not oversized" network.json '.oversized == false and .controller == null'
 
 echo
+echo "device detail"
+device_out=$(jq -f "$PLUGIN_DIR/normalize-device.jq" <<<'{"detail":{"interfaces":{"ports":[{"idx":3,"state":"UP","connector":"RJ45","speedMbps":1000,"maxSpeedMbps":1000,"poe":{"enabled":true,"state":"UP"}},{"idx":4,"state":"DOWN","connector":"RJ45","maxSpeedMbps":1000}],"radios":[{"wlanStandard":"802.11ax","frequencyGHz":5,"channelWidthMHz":80,"channel":36}]}},"stats":{"uptimeSec":1000,"cpuUtilizationPct":6.2,"memoryUtilizationPct":59.1,"loadAverage1Min":1.14,"lastHeartbeatAt":"2026-08-18T17:55:57Z","interfaces":{"radios":[{"frequencyGHz":5,"txRetriesPct":1.2}]}}}' 2>&1)
+if jq -e '.detail.ports[0].speedMbps == 1000 and .detail.ports[0].poe.state == "UP"
+         and .detail.ports[1].speedMbps == null
+         and .detail.radios[0].channel == 36
+         and .stats.cpuPct == 6.2 and .stats.radios[0].txRetriesPct == 1.2' \
+     >/dev/null 2>&1 <<<"$device_out" \
+   && jq -f "$PLUGIN_DIR/normalize-device.jq" <<<'{"detail":null,"stats":null}' |
+      jq -e '.detail == null and .stats == null' >/dev/null 2>&1 \
+   && jq -f "$PLUGIN_DIR/normalize-device.jq" <<<'{}' |
+      jq -e '.detail == null and .stats == null' >/dev/null 2>&1; then
+  printf '  ok    passes device detail and statistics through\n'; (( passed++ ))
+else
+  printf '  FAIL  passes device detail and statistics through\n'; (( failed++ ))
+fi
+
+echo
 echo "degenerate input"
 for payload in '{}' '{"devices":[]}' '{"devices":[{}],"clients":[{}]}'; do
   if out=$(jq -f "$NORMALIZE" <<<"$payload" 2>&1); then

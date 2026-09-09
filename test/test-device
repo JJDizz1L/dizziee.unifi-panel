@@ -1,0 +1,186 @@
+#!/bin/bash
+
+# Run unifi-device against a stub controller. No credentials and no network
+# beyond the loopback: the API key comes from a shim secret-tool on PATH.
+#
+# The device id reaches the script from widget argv, which learned it from
+# controller data — so a hostile id must never become a request, exactly
+# like the hostile site ids unifi-fetch defends against.
+
+set -uo pipefail
+
+TEST_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly TEST_DIR
+PLUGIN_DIR="$(dirname -- "$TEST_DIR")"
+readonly PLUGIN_DIR
+
+for cmd in python3 curl jq; do
+  command -v "$cmd" >/dev/null 2>&1 || { echo "$cmd is required" >&2; exit 1; }
+done
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"; [[ -n ${stub_pid:-} ]] && kill "$stub_pid" 2>/dev/null' EXIT
+
+# A shim secret-tool: the real one talks to the keyring, which CI has not.
+mkdir -p "$work/bin"
+cat >"$work/bin/secret-tool" <<'SHIM'
+#!/bin/sh
+case "$1" in lookup) printf 'test-key' ;; esac
+SHIM
+chmod +x "$work/bin/secret-tool"
+export PATH="$work/bin:$PATH"
+
+export XDG_STATE_HOME="$work/state"
+export XDG_RUNTIME_DIR="$work/runtime"
+mkdir -p "$XDG_RUNTIME_DIR"
+export HOME="$work/home"
+mkdir -p "$HOME"
+
+# The stub serves one adopted device with ports and radios plus its
+# statistics. STUB_MODE=stats-fail answers 500 for the statistics so the
+# detail must still come through with stats null.
+cat >"$work/stub.py" <<'PY'
+import json, os
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+mode = os.environ.get("STUB_MODE", "")
+log = open(os.environ["STUB_LOG"], "a")
+
+detail = {"id": "dev-1", "name": "Office Switch", "model": "USW-Lite-8-PoE",
+          "state": "ONLINE", "features": ["switching"],
+          "interfaces": {
+              "ports": [
+                  {"idx": 1, "state": "UP", "connector": "RJ45",
+                   "speedMbps": 1000, "maxSpeedMbps": 1000,
+                   "poe": {"enabled": True, "standard": "802.3af",
+                           "type": 2, "state": "UP"}},
+                  {"idx": 2, "state": "DOWN", "connector": "RJ45",
+                   "maxSpeedMbps": 1000}],
+              "radios": [
+                  {"wlanStandard": "802.11ax", "frequencyGHz": 5,
+                   "channelWidthMHz": 80, "channel": 36}]}}
+stats = {"uptimeSec": 441749, "lastHeartbeatAt": "2026-08-18T17:55:57Z",
+         "cpuUtilizationPct": 6.2, "memoryUtilizationPct": 59.1,
+         "loadAverage1Min": 1.14,
+         "interfaces": {"radios": [{"frequencyGHz": 5, "txRetriesPct": 1.2}]}}
+
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def _send(self, code, body):
+        data = json.dumps(body).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+    def do_GET(self):
+        log.write(self.path + "\n"); log.flush()
+        if self.headers.get("X-API-KEY") != "test-key":
+            return self._send(401, {"error": "no key"})
+        p = self.path.split("?")[0]
+        if p.endswith("/statistics/latest"):
+            if mode == "stats-fail":
+                return self._send(500, {"error": "boom"})
+            return self._send(200, stats)
+        if p.endswith("/devices/dev-1"):
+            return self._send(200, detail)
+        self._send(404, {"error": "unknown"})
+
+srv = HTTPServer(("127.0.0.1", 0), H)
+print(srv.server_port, flush=True)
+srv.serve_forever()
+PY
+
+passed=0
+failed=0
+ok()   { printf '  ok    %s\n' "$1"; (( passed++ )); }
+fail() { printf '  FAIL  %s\n        %s\n' "$1" "$2"; (( failed++ )); }
+
+start_stub() { # [mode]
+  STUB_MODE="${1:-}" STUB_LOG="$work/requests" \
+    python3 "$work/stub.py" >"$work/port" 2>/dev/null &
+  stub_pid=$!
+  local _
+  for _ in $(seq 1 50); do
+    [[ -s $work/port ]] && break
+    sleep 0.1
+  done
+  port=$(cat "$work/port")
+  mkdir -p "$XDG_STATE_HOME/omarchy/unifi"
+  printf 'url=http://127.0.0.1:%s/integration/v1\nsite=site-1\ninsecure=0\n' \
+    "$port" >"$XDG_STATE_HOME/omarchy/unifi/config"
+}
+
+stop_stub() {
+  kill "$stub_pid" 2>/dev/null
+  wait "$stub_pid" 2>/dev/null
+  stub_pid=""
+  rm -f "$work/port" "$work/requests"
+}
+
+echo "unifi-device against a stub controller:"
+
+# Detail and statistics come through; the site id comes from the config, so
+# no site lookup runs at all (device paths themselves contain "/sites/").
+start_stub
+out=$("$PLUGIN_DIR/unifi-device" --device=dev-1)
+if jq -e '.error == null
+         and .detail.ports[0].speedMbps == 1000
+         and .detail.ports[0].poe.state == "UP"
+         and .detail.ports[1].state == "DOWN"
+         and .detail.radios[0].channel == 36
+         and .stats.cpuPct == 6.2
+         and .stats.radios[0].txRetriesPct == 1.2' >/dev/null 2>&1 <<<"$out" \
+   && ! grep -qE '/sites(\?|$)' "$work/requests"; then
+  ok "renders detail and statistics without a site lookup"
+else
+  fail "renders detail and statistics without a site lookup" "${out:0:200}"
+fi
+stop_stub
+
+# A device the controller does not know ends the run before statistics.
+start_stub
+out=$("$PLUGIN_DIR/unifi-device" --device=nope)
+if jq -e '.error | test("no such device")' >/dev/null 2>&1 <<<"$out" \
+   && ! grep -q statistics "$work/requests"; then
+  ok "reports an unknown device without asking for statistics"
+else
+  fail "reports an unknown device without asking for statistics" "${out:0:200}"
+fi
+stop_stub
+
+# A hostile device id — what controller data could smuggle into argv —
+# never becomes a request.
+evil_id=$'dev-1"\noutput = '"$HOME/pwned"
+start_stub
+out=$("$PLUGIN_DIR/unifi-device" --device="$evil_id")
+if jq -e '.error | test("device id")' >/dev/null 2>&1 <<<"$out" \
+   && [[ ! -e $HOME/pwned ]] && ! grep -q 'dev-1"' "$work/requests" 2>/dev/null; then
+  ok "refuses a device id that is not a plain token"
+else
+  fail "refuses a device id that is not a plain token" "${out:0:200}"
+fi
+stop_stub
+
+# Statistics are a bonus: when they fail, the detail still renders.
+start_stub stats-fail
+out=$("$PLUGIN_DIR/unifi-device" --device=dev-1)
+if jq -e '.error == null and .detail.ports[0].idx == 1 and .stats == null' \
+     >/dev/null 2>&1 <<<"$out"; then
+  ok "keeps the detail when statistics fail"
+else
+  fail "keeps the detail when statistics fail" "${out:0:200}"
+fi
+stop_stub
+
+# Only --device=<id> is accepted.
+out=$("$PLUGIN_DIR/unifi-device" --bogus 2>&1)
+if jq -e '.error | test("only --device")' >/dev/null 2>&1 <<<"$out"; then
+  ok "rejects anything but --device=<id>"
+else
+  fail "rejects anything but --device=<id>" "${out:0:200}"
+fi
+
+echo
+echo "$passed passed, $failed failed"
+(( failed == 0 ))

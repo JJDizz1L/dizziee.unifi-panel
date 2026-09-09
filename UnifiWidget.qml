@@ -73,6 +73,12 @@ Panel {
   // like last poll, so only genuine transitions announce themselves.
   property var lastSeenById: ({})
   property var notifiedAt: ({})
+  // On-demand per-device detail, keyed by device id: {at, bundle} on
+  // success, {at, error} on failure. At most one row expands at a time.
+  property var deviceDetails: ({})
+  property string expandedDeviceId: ""
+  property string deviceLoadingId: ""
+  property string devicePendingId: ""
   // WAN link states keyed by link key, mirroring lastSeenById for devices.
   property var lastWanByKey: ({})
   // Devices waiting for adoption ({count, devices} or null while unknown),
@@ -131,6 +137,12 @@ Panel {
 
   readonly property string loginPath:
     Qt.resolvedUrl("unifi-login").toString().replace(/^file:\/\//, "")
+
+  // Detail loads when a row expands, not on every poll: one small request
+  // per expansion, answered from a two-minute cache while it stays fresh.
+  readonly property string devicePath:
+    Qt.resolvedUrl("unifi-device").toString().replace(/^file:\/\//, "")
+  readonly property int deviceCacheMs: 120000
 
   // The bar shows the Ubiquiti mark (components/UbiquitiIcon.qml) rather than
   // a font glyph, so it cannot be confused with the shell's own network widget.
@@ -574,6 +586,67 @@ Panel {
     notifyProcess.running = true
   }
 
+  // --- on-demand device detail ------------------------------------------
+
+  function deviceBundle(id) {
+    var entry = deviceDetails[String(id)]
+    return (entry && entry.bundle) ? entry.bundle : null
+  }
+
+  function deviceBundleError(id) {
+    var entry = deviceDetails[String(id)]
+    return (entry && entry.error) ? String(entry.error) : ""
+  }
+
+  function deviceLoading(id) {
+    return deviceLoadingId === String(id)
+  }
+
+  function toggleDeviceExpand(id) {
+    var key = String(id || "")
+    // Rows without an id (degenerate controller data) never expand.
+    if (key === "") return
+    expandedDeviceId = (expandedDeviceId === key) ? "" : key
+    if (expandedDeviceId !== "") requestDeviceDetail(expandedDeviceId)
+  }
+
+  function requestDeviceDetail(id) {
+    var key = String(id || "")
+    if (key === "") return
+    var entry = deviceDetails[key]
+    if (entry && (Date.now() - entry.at) < deviceCacheMs) return
+    if (deviceProcess.running) {
+      devicePendingId = key
+      return
+    }
+    devicePendingId = ""
+    deviceLoadingId = key
+    // An argv array, never a shell line — and unifi-device token-checks the
+    // id before it reaches a URL, since it arrives via controller data.
+    deviceProcess.command = [devicePath, "--device=" + key]
+    deviceProcess.running = true
+  }
+
+  function applyDeviceOutput(id, text) {
+    var key = String(id || "")
+    var entry = { at: Date.now() }
+    var parsed = null
+    try {
+      parsed = JSON.parse(String(text || ""))
+    } catch (error) {
+      parsed = null
+    }
+    if (parsed && parsed.error)
+      entry.error = String(parsed.error)
+    else if (parsed && (parsed.detail || parsed.stats))
+      entry.bundle = { detail: parsed.detail || null, stats: parsed.stats || null }
+    else
+      entry.error = "The UniFi helper returned something unreadable"
+    // A fresh object: reassigning the same reference would not notify the
+    // bundle bindings reading this map.
+    deviceDetails = Object.assign({}, deviceDetails, { [key]: entry })
+  }
+
   // --- processes and timers ---------------------------------------------
 
   Process {
@@ -602,6 +675,37 @@ Panel {
     id: notifyProcess
     running: false
     command: []
+  }
+
+  Process {
+    id: deviceProcess
+    running: false
+    command: []
+
+    stdout: StdioCollector { id: deviceStdout; waitForEnd: true }
+    stderr: StdioCollector { id: deviceStderr; waitForEnd: true }
+
+    onExited: function(exitCode) {
+      var id = root.deviceLoadingId
+      root.deviceLoadingId = ""
+      if (exitCode === 0) {
+        root.applyDeviceOutput(id, deviceStdout.text)
+      } else {
+        var detail = String(deviceStderr.text || "").replace(/\s+/g, " ").trim()
+        // Fresh object for the same notify reason as applyDeviceOutput.
+        root.deviceDetails = Object.assign({}, root.deviceDetails,
+          { [id]: { at: Date.now(),
+                    error: detail !== ""
+                      ? detail
+                      : "The UniFi helper exited with code " + exitCode } })
+      }
+      // An expansion requested mid-fetch runs now that the process is free.
+      if (root.devicePendingId !== "") {
+        var next = root.devicePendingId
+        root.devicePendingId = ""
+        root.requestDeviceDetail(next)
+      }
+    }
   }
 
   Timer {
@@ -1146,6 +1250,8 @@ Panel {
             width: column.width
             device: gatewayEntry.modelData
             host: root
+            expanded: root.expandedDeviceId !== ""
+              && String(gatewayEntry.modelData.id) === root.expandedDeviceId
             gatewayStats: root.showGatewayStats && root.gateway && root.gateway.stats
               && String(gatewayEntry.modelData.id) === String(root.gateway.id)
               ? root.gateway.stats : null
@@ -1214,6 +1320,8 @@ Panel {
             width: ListView.view.width - Style.space(6)   // room for the scrollbar
             device: deviceEntry.modelData
             host: root
+            expanded: root.expandedDeviceId !== ""
+              && String(deviceEntry.modelData.id) === root.expandedDeviceId
           }
         }
 

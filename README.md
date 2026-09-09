@@ -10,7 +10,8 @@ drops or comes back. Under the gateway it shows what is flowing through the
 WAN — download and upload right now, each with a graph of the last twelve
 hours — plus CPU, memory, load and uptime, and the WAN: public address and
 upstream gateway, ISP, and each WAN link's latency, uptime and 24-hour
-availability, so a failed-over or dead backup link is visible. It is
+availability, so a failed-over or dead backup link is visible. Click any
+device to expand its load figures, switch ports and radio details. It is
 read-only.
 
 ![The panel listing a gateway with its WAN rates, two 12-hour graphs, health line and WAN links,

@@ -118,6 +118,9 @@ Omarchy bar-widget plugin. This checkout *is* the installed plugin
 
 - The API key never reaches argv: it goes to curl as a header line in a
   config on stdin (`unifi_http`), and `secret-tool` reads it from stdin.
+- Standalone repo since 2026-09-09: detached from hegjon/omarchy-unifi, no
+  upstream. Push to the `fork` remote (`JJDizz1L/dizziee.unifi-panel`); the
+  `origin` remote is dead.
 - `fetch_all` sets `FETCHED` rather than printing, because `die` inside a
   `$(...)` would end only the subshell and its JSON would be captured as data.
 - The plugin id (`dizziee.unifi-panel`, `hegjon.unifi` before the 0.6.0 rebrand) is also the keyring `application` attribute

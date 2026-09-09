@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "dizziee.unifi-panel",
   "name": "UniFi",
-  "version": "0.9.0",
+  "version": "1.0.1",
   "author": "JJDizz1L",
   "license": "MIT",
   "description": "Watch your UniFi network from the Omarchy bar: access points, switches and gateways with their online state, the gateway's WAN graph and links, overall client counts, and a notification when a device drops.",

@@ -23,7 +23,7 @@ notifications fire when a device drops or comes back, a WAN link fails over,
 a device waits for adoption, or a firmware update appears. It is read-only:
 it never changes anything on the controller.
 
-<!-- Screenshots go here. -->
+<img width="608" height="593" alt="dizziee unifi-panel-1" src="https://github.com/user-attachments/assets/11e7e38c-0cc0-4f36-805d-1a691c4b866a" />
 
 It talks to the UniFi Network application's official **Integration API**
 (Network 9.0 or newer) with an API key, so it works with UniFi OS consoles

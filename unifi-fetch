@@ -285,6 +285,7 @@ fi
 clients='[]'
 clients_total=0
 clients_requested=false
+sta=null
 if (( WANT_CLIENTS )); then
   clients_requested=true
   fetch_all "/sites/$site_id/clients" "$MAX_CLIENTS"
@@ -352,10 +353,17 @@ fi
 # WAN state: the documented API only names the WAN links, so their names
 # come from /wans and everything else — status, address, ISP, latency,
 # per-link availability — from the classic stat/health, which is small and
-# changes every heartbeat, so it is not cached. Both are optional: without
-# them the gateway block simply has no WAN lines.
+# changes every heartbeat, so it is not cached. The classic networkconf rides
+# along for what neither carries: each network's subnet (the Networks tab)
+# and the WAN networks' configured DNS (the Devices-tab gateway detail).
+# The classic device table rides along too, cached for an hour: it alone
+# carries the gateway's LAN address and public IPv6. All four are optional:
+# without them the gateway block simply has no WAN lines and the Networks
+# tab no subnets.
 wans=null
 health=null
+network_conf=null
+stat_device=null
 if [[ -n $gateway_id ]]; then
   unifi_http "/sites/$site_id/wans" "$API_KEY"
   if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
@@ -369,6 +377,58 @@ if [[ -n $gateway_id ]]; then
     if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
       health=$(jq -c '.data' <<<"$UNIFI_HTTP_BODY")
     fi
+    UNIFI_API_BASE_SAVED="$UNIFI_API_BASE"
+    UNIFI_API_BASE="$(unifi_classic_base)"
+    unifi_http "/api/s/$site_name/rest/networkconf" "$API_KEY"
+    UNIFI_API_BASE="$UNIFI_API_BASE_SAVED"
+    if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
+      network_conf=$(jq -c '.data' <<<"$UNIFI_HTTP_BODY")
+    fi
+    # The gateway's LAN address and public IPv6 live only in the classic
+    # device table, which is tens of kilobytes per device — far too heavy
+    # to fetch every poll. Both move slowly (DHCP with sticky leases), so
+    # the table is cached for an hour; a failed refresh keeps the stale
+    # cache, and only a site never successfully read shows blanks.
+    stat_device=null
+    stat_cache=""
+    [[ -n ${XDG_RUNTIME_DIR:-} ]] && stat_cache="$XDG_RUNTIME_DIR/omarchy-unifi/device-$site_id.json"
+    if [[ -n $stat_cache && -f $stat_cache ]] &&
+       stat_device=$(cat "$stat_cache") &&
+       jq -e 'type == "array"' >/dev/null 2>&1 <<<"$stat_device" &&
+       (( $(date +%s) - $(stat -c %Y "$stat_cache") < 3600 )); then
+      :
+    else
+      stat_device=null
+      UNIFI_API_BASE_SAVED="$UNIFI_API_BASE"
+      UNIFI_API_BASE="$(unifi_classic_base)"
+      unifi_http "/api/s/$site_name/stat/device" "$API_KEY"
+      UNIFI_API_BASE="$UNIFI_API_BASE_SAVED"
+      if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
+        stat_device=$(jq -c '.data' <<<"$UNIFI_HTTP_BODY")
+        # $XDG_RUNTIME_DIR is ours already; umask 077 keeps our directory private.
+        [[ -n $stat_cache ]] && mkdir -p "$(dirname "$stat_cache")" && printf '%s' "$stat_device" >"$stat_cache"
+      elif [[ -n $stat_cache && -f $stat_cache ]] &&
+           stat_device=$(cat "$stat_cache") &&
+           jq -e 'type == "array"' >/dev/null 2>&1 <<<"$stat_device"; then
+        :
+      else
+        stat_device=null
+      fi
+    fi
+  fi
+fi
+
+# Per-client radio health (signal strength, satisfaction) for the opt-in
+# Clients tab, joined by MAC in the normalizer. Live data, so it is not
+# cached — but it rides the same opt-in flag as the client list, stays
+# inside the shared byte budget, and is never fatal.
+if (( WANT_CLIENTS )) && [[ -n $site_name ]]; then
+  UNIFI_API_BASE_SAVED="$UNIFI_API_BASE"
+  UNIFI_API_BASE="$(unifi_classic_base)"
+  unifi_http "/api/s/$site_name/stat/sta" "$API_KEY"
+  UNIFI_API_BASE="$UNIFI_API_BASE_SAVED"
+  if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
+    sta=$(jq -c '.data' <<<"$UNIFI_HTTP_BODY")
   fi
 fi
 
@@ -379,11 +439,14 @@ unset API_KEY
 # the controller's raw string. The controller URL is the user's own config,
 # passed along so the oversized view can link to the real device list.
 jq --argjson stats "$stats" --argjson report "$report" --argjson wans "$wans" --argjson health "$health" \
+  --argjson networkConf "$network_conf" --argjson statDevice "$stat_device" \
+  --argjson staClients "$sta" \
   --argjson info "$info" --argjson pending "$pending" --argjson wifi "$wifi" \
   --argjson networks "$networks" --argjson vpn_servers "$vpn_servers" \
   --argjson vpn_tunnels "$vpn_tunnels" \
   --arg siteRef "$site_name" --arg controllerUrl "$UNIFI_URL" \
-  '. + {stats: $stats, report: $report, wans: $wans, health: $health, info: $info,
+  '. + {stats: $stats, report: $report, wans: $wans, health: $health, networkConf: $networkConf,
+        statDevice: $statDevice, staClients: $staClients, info: $info,
         pending: $pending, wifi: $wifi, networks: $networks,
         vpnServers: $vpn_servers, vpnTunnels: $vpn_tunnels, siteRef: $siteRef,
         controllerUrl: $controllerUrl}' <<<"$raw" |

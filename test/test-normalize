@@ -69,32 +69,72 @@ else
 fi
 # WiFi broadcasts ride through as the controller's count plus one row per
 # SSID; a missing security enum renders empty, and no request at all
-# normalizes to null rather than an empty block.
+# normalizes to null rather than an empty block. Bands come from the
+# broadcast; APs and channels come from the classic vap_table, matched by
+# SSID name — empty until that hourly table answers.
 wifi_out=$(jq -f "$NORMALIZE" \
-  <<<'{"wifi":{"totalCount":2,"data":[{"name":"Home","enabled":true,"securityConfiguration":{"type":"WPA3_PERSONAL"},"type":"STANDARD"},{"name":"Guest","enabled":false}]}}' 2>&1)
+  <<<'{"wifi":{"totalCount":2,"data":[{"name":"Home","enabled":true,"securityConfiguration":{"type":"WPA3_PERSONAL"},"type":"STANDARD","broadcastingFrequenciesGHz":[5,2.4]},{"name":"Guest","enabled":false}]},"statDevice":[{"name":"Router","vap_table":[{"essid":"Home","radio":"na","channel":116,"num_sta":2},{"essid":"","radio":"na","channel":0}]}]}' 2>&1)
 if jq -e '.wifi.count == 2 and .wifi.networks[0].security == "WPA3_PERSONAL"
          and .wifi.networks[0].iot == false
+         and .wifi.networks[0].bands == [2.4, 5]
+         and .wifi.networks[0].radios[0].ap == "Router"
+         and .wifi.networks[0].radios[0].channel == 116
+         and (.wifi.networks[0].radios | length) == 1
          and .wifi.networks[1].enabled == false
-         and .wifi.networks[1].security == ""' \
+         and .wifi.networks[1].security == ""
+         and .wifi.networks[1].bands == []
+         and .wifi.networks[1].radios == []' \
      >/dev/null 2>&1 <<<"$wifi_out" \
    && jq -f "$NORMALIZE" <<<'{}' | jq -e '.wifi == null' >/dev/null 2>&1; then
-  printf '  ok    passes WiFi broadcasts through, null when unfetched\n'; (( passed++ ))
+  printf '  ok    passes WiFi broadcasts through, with bands and AP channels, null when unfetched\n'; (( passed++ ))
 else
-  printf '  FAIL  passes WiFi broadcasts through, null when unfetched\n'; (( failed++ ))
+  printf '  FAIL  passes WiFi broadcasts through, with bands and AP channels, null when unfetched\n'; (( failed++ ))
 fi
 # Networks ride through as the controller's count plus one row per network;
 # a missing VLAN id stays null, and no request at all normalizes to null.
+# The classic networkconf lends each row its subnet, matched by name; without
+# it the subnet stays null rather than "null".
 networks_out=$(jq -f "$NORMALIZE" \
-  <<<'{"networks":{"totalCount":2,"data":[{"name":"Default","vlanId":1,"enabled":true,"management":"GATEWAY","default":true},{"name":"Guest","enabled":false}]}}' 2>&1)
+  <<<'{"networkConf":[{"name":"Default","ip_subnet":"10.24.1.1/27"}],"networks":{"totalCount":2,"data":[{"name":"Default","vlanId":1,"enabled":true,"management":"GATEWAY","default":true},{"name":"Guest","enabled":false}]}}' 2>&1)
 if jq -e '.networks.count == 2 and .networks.networks[0].vlanId == 1
          and .networks.networks[0].standard == true
+         and .networks.networks[0].subnet == "10.24.1.1/27"
          and .networks.networks[1].enabled == false
-         and .networks.networks[1].vlanId == null' \
+         and .networks.networks[1].vlanId == null
+         and .networks.networks[1].subnet == null' \
      >/dev/null 2>&1 <<<"$networks_out" \
    && jq -f "$NORMALIZE" <<<'{}' | jq -e '.networks == null' >/dev/null 2>&1; then
-  printf '  ok    passes networks through, null when unfetched\n'; (( passed++ ))
+  printf '  ok    passes networks through, with subnets by name, null when unfetched\n'; (( passed++ ))
 else
-  printf '  FAIL  passes networks through, null when unfetched\n'; (( failed++ ))
+  printf '  FAIL  passes networks through, with subnets by name, null when unfetched\n'; (( failed++ ))
+fi
+# The gateway's own ipAddress is its WAN address, so its row shows the LAN
+# address instead: the host part of the default network's subnet, falling
+# back to the WAN address when the classic config is missing.
+lan_out=$(jq -f "$NORMALIZE" \
+  <<<'{"devices":[{"id":"g","model":"UDR7","ipAddress":"73.186.109.230","state":"ONLINE"}],"networkConf":[{"name":"Management","purpose":"corporate","ip_subnet":"10.24.1.1/27"}],"networks":{"totalCount":1,"data":[{"name":"Management","default":true}]}}' 2>&1)
+if jq -e '.devices[0].kind == "gateway" and .devices[0].ip == "10.24.1.1"' \
+     >/dev/null 2>&1 <<<"$lan_out" \
+   && jq -f "$NORMALIZE" \
+     <<<'{"devices":[{"id":"g","model":"UDR7","ipAddress":"73.186.109.230","state":"ONLINE"}]}' |
+      jq -e '.devices[0].ip == "73.186.109.230"' >/dev/null 2>&1; then
+  printf '  ok    the gateway row shows its LAN address, WAN when unknown\n'; (( passed++ ))
+else
+  printf '  FAIL  the gateway row shows its LAN address, WAN when unknown\n'; (( failed++ ))
+fi
+# The classic device table (matched by MAC) lends the row its LAN address
+# and the WAN block its public IPv6; link-local never counts, and an empty
+# MAC never matches a degenerate row.
+href_out=$(jq -f "$NORMALIZE" \
+  <<<'{"devices":[{"id":"g","model":"UDR7","macAddress":"aa:bb:cc:00:00:04","ipAddress":"73.186.109.230","state":"ONLINE"}],"health":[{"subsystem":"wan","status":"ok","wan_ip":"73.186.109.230","uptime_stats":{"WAN":{"availability":100,"uptime":5}}}],"statDevice":[{"mac":"aa:bb:cc:00:00:04","lan_ip":"10.24.1.1","wan1":{"ipv6":["2001:db8::1","fe80::2"]}}]}' 2>&1)
+if jq -e '.devices[0].ip == "10.24.1.1" and .gateway.wan.ipv6 == "2001:db8::1"' \
+     >/dev/null 2>&1 <<<"$href_out" \
+   && jq -f "$NORMALIZE" \
+     <<<'{"devices":[{}],"statDevice":[{"mac":"","lan_ip":"9.9.9.9","wan1":{"ipv6":["2001:db8::9"]}}]}' |
+      jq -e '.devices[0].ip == "" and .gateway == null' >/dev/null 2>&1; then
+  printf '  ok    the device table lends the LAN address and public IPv6\n'; (( passed++ ))
+else
+  printf '  FAIL  the device table lends the LAN address and public IPv6\n'; (( failed++ ))
 fi
 # VPN servers and tunnels ride through side by side; one side missing still
 # yields the other, and both missing normalizes to null rather than empties.
@@ -111,25 +151,29 @@ else
   printf '  FAIL  passes VPN servers and tunnels through, null when unfetched\n'; (( failed++ ))
 fi
 # The opt-in client list: type breakdown with guest split, VPN names and
-# per-device counts by uplinkDeviceId. Unrequested the block is null and
-# every device counts zero; past the row cap only the claimed total
-# survives.
+# per-device counts by uplinkDeviceId, plus live radio health (signal,
+# satisfaction) from classic stat/sta joined by MAC. Unrequested the block
+# is null and every device counts zero; past the row cap only the claimed
+# total survives.
 clients_out=$(jq -f "$NORMALIZE" \
-  <<<'{"clientsRequested":true,"devices":[{"id":"d1","name":"AP","state":"ONLINE","features":["accessPoint"]}],"clients":[{"type":"WIRED","uplinkDeviceId":"d1","access":{"type":"DEFAULT"},"name":"PC","ipAddress":"1.2.3.4"},{"type":"VPN","access":{"type":"DEFAULT"},"name":"Road","ipAddress":"10.0.0.2"},{"type":"WIRELESS","uplinkDeviceId":"d9","access":{"type":"GUEST"}}]}' 2>&1)
+  <<<'{"clientsRequested":true,"devices":[{"id":"d1","name":"AP","state":"ONLINE","features":["accessPoint"]}],"clients":[{"type":"WIRED","uplinkDeviceId":"d1","macAddress":"AA:BB:CC:00:00:20","access":{"type":"DEFAULT"},"name":"PC","ipAddress":"1.2.3.4"},{"type":"VPN","access":{"type":"DEFAULT"},"name":"Road","ipAddress":"10.0.0.2"},{"type":"WIRELESS","uplinkDeviceId":"d9","access":{"type":"GUEST"}}],"staClients":[{"mac":"aa:bb:cc:00:00:20","signal":-40,"satisfaction":100},{"mac":"aa:bb:cc:00:00:99","signal":-60,"satisfaction":-1}]}' 2>&1)
 if jq -e '.clientsDetail.count == 3 and .clientsDetail.wired == 1
          and .clientsDetail.vpn == 1 and .clientsDetail.guests == 1
          and .clientsDetail.vpnClients[0].name == "Road"
          and .clientsDetail.list[0].kind == "wired"
+         and .clientsDetail.list[0].signal == -40
+         and .clientsDetail.list[0].satisfaction == 100
          and .clientsDetail.list[2].guest == true
+         and .clientsDetail.list[2].signal == null
          and .devices[0].clients == 1' \
      >/dev/null 2>&1 <<<"$clients_out" \
    && jq -f "$NORMALIZE" <<<'{"devices":[{"id":"d1","state":"ONLINE"}]}' |
       jq -e '.clientsDetail == null and .devices[0].clients == 0' >/dev/null 2>&1 \
    && jq -f "$NORMALIZE" <<<'{"clientsRequested":true,"clientsTotal":5000,"clients":[]}' |
       jq -e '.clientsDetail.count == 5000 and .clientsDetail.wired == null' >/dev/null 2>&1; then
-  printf '  ok    passes the client breakdown through, null when unrequested\n'; (( passed++ ))
+  printf '  ok    passes the client breakdown through, with radio health, null when unrequested\n'; (( passed++ ))
 else
-  printf '  FAIL  passes the client breakdown through, null when unrequested\n'; (( failed++ ))
+  printf '  FAIL  passes the client breakdown through, with radio health, null when unrequested\n'; (( failed++ ))
 fi
 check "counts every device" network.json '.summary.devices == 5'
 check "counts online devices" network.json '.summary.online == 3'
@@ -312,6 +356,22 @@ if jq --slurpfile h "$TEST_DIR/fixtures/health.json" '. + {health: $h[0], wans: 
   printf '  ok    falls back to the controller'"'"'s keys when the name count differs\n'; (( passed++ ))
 else
   printf '  FAIL  falls back to the controller'"'"'s keys when the name count differs\n'; (( failed++ ))
+fi
+# The classic networkconf names each key via wan_networkgroup, so a monitored
+# link keeps its configured name even when the /wans count disagrees — and
+# lends the WAN rows their configured DNS, which the health row omits.
+wan_dns_out=$(jq -f "$NORMALIZE" \
+  <<<'{"devices":[{"id":"g","model":"UDR7","state":"ONLINE"}],"health":[{"subsystem":"wan","status":"ok","wan_ip":"1.2.3.4","gateways":["fe80::1","1.2.3.1"],"netmask":"255.255.255.0","nameservers":[],"isp_name":"Example ISP","asn":64496,"uptime_stats":{"WAN":{"availability":99.5,"uptime":100}}}],"wans":[{"name":"Fibre"},{"name":"LTE backup"}],"networkConf":[{"purpose":"wan","wan_networkgroup":"WAN","name":"Fibre","wan_dns1":"9.9.9.9","wan_dns2":"149.112.112.112","wan_ipv6_dns1":"2620:fe::fe","wan_ipv6_dns2":"2620:fe::9"}]}' 2>&1)
+if jq -e '.gateway.wan.ip == "1.2.3.4" and .gateway.wan.ipv6 == null
+         and .gateway.wan.gateway == "1.2.3.1" and .gateway.wan.netmask == "255.255.255.0"
+         and (.gateway.wan.dns4 | sort) == ["149.112.112.112", "9.9.9.9"]
+         and (.gateway.wan.dns6 | sort) == ["2620:fe::9", "2620:fe::fe"]
+         and .gateway.wan.isp == "Example ISP"
+         and .gateway.wan.links[0].name == "Fibre"' \
+     >/dev/null 2>&1 <<<"$wan_dns_out"; then
+  printf '  ok    prefers the IPv4 upstream, merges WAN DNS, names the link by group\n'; (( passed++ ))
+else
+  printf '  FAIL  prefers the IPv4 upstream, merges WAN DNS, names the link by group\n'; (( failed++ ))
 fi
 
 echo

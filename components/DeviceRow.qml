@@ -27,6 +27,13 @@ Item {
   property var rateHistory: []
   property var rateReport: null
   property var wanState: null
+  // Devices-tab gateway rows set this: the WAN address block appears only
+  // once the row is clicked open, like the ports below it — never on the
+  // Overview row, which keeps the graphs and hides the public address.
+  property bool showWanOnExpand: false
+  // The Overview gateway row hides the role glyph so the text takes the full
+  // width; the Devices list keeps it to tell roles apart at a glance.
+  property bool showGlyph: true
   property bool expanded: false
 
   height: body.implicitHeight
@@ -46,8 +53,9 @@ Item {
 
         textFormat: Text.PlainText
         id: glyph
+        visible: row.showGlyph
         anchors.verticalCenter: parent.verticalCenter
-        width: Style.space(22)
+        width: row.showGlyph ? Style.space(22) : 0
         horizontalAlignment: Text.AlignHCenter
         text: row.host.kindGlyph(row.device.kind)
         color: row.host.bucketColor(row.device.bucket)
@@ -56,7 +64,7 @@ Item {
       }
 
       Column {
-        width: parent.width - glyph.width - Style.space(10)
+        width: parent.width - (row.showGlyph ? glyph.width + Style.space(10) : 0)
         spacing: Style.space(2)
 
         Row {
@@ -107,8 +115,9 @@ Item {
 
             textFormat: Text.PlainText
             id: clientText
-            text: row.device.firmwareUpdatable ? "Update available" : ""
-            color: row.host.detailColor
+          text: row.device.firmwareUpdatable ? "Update available" : ""
+          // Actionable, so it takes the accent rather than dim detail text.
+          color: row.device.firmwareUpdatable ? Color.accent : row.host.detailColor
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
           }
@@ -117,20 +126,38 @@ Item {
     }
 
     GatewayStats {
-      // Indented under the name, past the glyph column.
-      x: Style.space(22) + Style.space(10)
+      // Indented under the name, past the glyph column (flush on rows
+      // without the glyph).
+      x: row.showGlyph ? Style.space(22) + Style.space(10) : 0
       width: parent.width - x
       visible: row.gatewayStats !== null
       host: row.host
       latest: row.gatewayStats
       history: row.rateHistory
       report: row.rateReport
+      wan: null
+      showGraphs: true
+      showWan: false
+    }
+
+    GatewayStats {
+      // The Devices-tab gateway detail: addresses and ISP, no graphs.
+      // Visible only once the row is clicked open.
+      x: row.showGlyph ? Style.space(22) + Style.space(10) : 0
+      width: parent.width - x
+      visible: row.showWanOnExpand && row.expanded && row.wanState !== null
+      host: row.host
+      latest: null
+      history: []
+      report: null
       wan: row.wanState
+      showGraphs: false
+      showWan: true
     }
 
     DeviceDetail {
-      // Indented with the statistics block.
-      x: Style.space(22) + Style.space(10)
+      // Indented with the statistics block (flush on rows without the glyph).
+      x: row.showGlyph ? Style.space(22) + Style.space(10) : 0
       width: parent.width - x
       visible: row.expanded
       host: row.host

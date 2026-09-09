@@ -6,11 +6,13 @@ import qs.Ui
 
 // The gateway's vital signs under its row: WAN download and upload right now,
 // each with a graph over the samples the widget has collected, and CPU,
-// memory and uptime.
+// memory and uptime — plus, when asked, the WAN detail (public address,
+// DNS, ISP and per-link state).
 //
-// `history` is an array of {t, rx, tx} in bits per second, oldest first. The
-// widget owns it and appends one entry per controller heartbeat, so the graph
-// spans however long the shell has been running, up to the widget's cap.
+// `showGraphs` keeps the rates, graphs and health line (the Overview row).
+// `showWan` keeps the address block (the Devices-tab expansion, gated behind
+// a click like the ports below it). The Overview hides the WAN address;
+// the Devices tab hides the graphs.
 Column {
   id: stats
 
@@ -23,6 +25,8 @@ Column {
   property var report: null
   // WAN state from the controller's health report, or null when unavailable.
   property var wan: null
+  property bool showGraphs: true
+  property bool showWan: true
 
   // What the graphs plot: the controller's report when it has one, since it
   // is there in full the moment the panel opens and survives a shell restart;
@@ -93,8 +97,8 @@ Column {
   // One graph per direction, each on its own scale: upload is usually a
   // fraction of download, and on a shared axis it flattened into the
   // baseline. Same shape for both, so the eye compares them by height only.
-  RateGraph { key: "rx"; glyph: stats.downGlyph; label: "Download"; tint: stats.downColor }
-  RateGraph { key: "tx"; glyph: stats.upGlyph; label: "Upload"; tint: stats.upColor }
+  RateGraph { key: "rx"; glyph: stats.downGlyph; label: "Download"; tint: stats.downColor; visible: stats.showGraphs }
+  RateGraph { key: "tx"; glyph: stats.upGlyph; label: "Upload"; tint: stats.upColor; visible: stats.showGraphs }
 
   component RateGraph: Column {
     id: rate
@@ -209,6 +213,7 @@ Column {
   Text {
     textFormat: Text.PlainText
     width: parent.width
+    visible: stats.showGraphs
     elide: Text.ElideRight
     text: "CPU " + stats.formatPct(stats.latest ? stats.latest.cpuPct : null)
       + "  ·  Memory " + stats.formatPct(stats.latest ? stats.latest.memPct : null)
@@ -219,22 +224,58 @@ Column {
     font.pixelSize: Style.font.caption
   }
 
-  // WAN: who the gateway is talking to and how each link is doing. The
-  // primary link's address and ISP head the section; every link then gets a
-  // row of its own, since a second WAN that is down is worth seeing.
+  // WAN detail: what address the site is on, what resolves names, who sells
+  // the transit, and how each link is doing. Shown only where asked — the
+  // Devices-tab expansion, gated behind a click like the ports below it —
+  // so the public address never sits on the Overview row. Missing pieces
+  // render as an em dash, never "null".
   Text {
     textFormat: Text.PlainText
     width: parent.width
-    visible: stats.wan !== null && stats.wan !== undefined
+    visible: stats.showWan && stats.wan !== null && stats.wan !== undefined
     elide: Text.ElideRight
     text: {
       var w = stats.wan
       if (!w) return ""
-      var parts = ["WAN"]
-      if (w.ip) parts.push(w.ip + (w.gateway ? " via " + w.gateway : ""))
-      return parts.join("  ·  ")
+      var addr = w.ip ? w.ip : "—"
+      if (w.gateway) addr += " via " + w.gateway
+      if (w.netmask) addr += "  ·  " + w.netmask
+      return "IPv4  " + addr
     }
     color: Color.popups.text
+    font.family: Style.font.family
+    font.pixelSize: Style.font.caption
+  }
+
+  Text {
+    textFormat: Text.PlainText
+    width: parent.width
+    visible: stats.showWan && stats.wan !== null && stats.wan !== undefined
+    elide: Text.ElideRight
+    text: "IPv6  " + ((stats.wan && stats.wan.ipv6) ? stats.wan.ipv6 : "—")
+    color: Color.popups.text
+    font.family: Style.font.family
+    font.pixelSize: Style.font.caption
+  }
+
+  Text {
+    textFormat: Text.PlainText
+    width: parent.width
+    visible: stats.showWan && stats.wan && stats.wan.dns4 && stats.wan.dns4.length > 0
+    elide: Text.ElideRight
+    text: "DNS  " + (stats.wan && stats.wan.dns4 ? stats.wan.dns4.join("  ·  ") : "")
+    color: stats.host.detailColor
+    font.family: Style.font.family
+    font.pixelSize: Style.font.caption
+  }
+
+  Text {
+    textFormat: Text.PlainText
+    width: parent.width
+    visible: stats.showWan && stats.wan && stats.wan.dns6 && stats.wan.dns6.length > 0
+    elide: Text.ElideRight
+    text: "IPv6 DNS  " + (stats.wan && stats.wan.dns6 ? stats.wan.dns6.join("  ·  ") : "")
+    color: stats.host.detailColor
     font.family: Style.font.family
     font.pixelSize: Style.font.caption
   }
@@ -244,10 +285,10 @@ Column {
   Text {
     textFormat: Text.PlainText
     width: parent.width
-    visible: !!(stats.wan && stats.wan.isp)
+    visible: stats.showWan && !!(stats.wan && stats.wan.isp)
     wrapMode: Text.WordWrap
     text: stats.wan && stats.wan.isp
-      ? stats.wan.isp + (stats.wan.asn ? "  ·  AS" + stats.wan.asn : "")
+      ? "ISP  " + stats.wan.isp + (stats.wan.asn ? "  ·  AS" + stats.wan.asn : "")
       : ""
     color: stats.host.detailColor
     font.family: Style.font.family
@@ -255,7 +296,7 @@ Column {
   }
 
   Repeater {
-    model: stats.wan && stats.wan.links ? stats.wan.links : []
+    model: (stats.showWan && stats.wan && stats.wan.links) ? stats.wan.links : []
 
     Row {
       id: linkRow

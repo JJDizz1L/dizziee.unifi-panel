@@ -6,6 +6,79 @@
 
 def as_number($v): if ($v | type) == "number" then $v else null end;
 
+# A non-empty string, or null: controller strings render empty downstream,
+# so blank and missing stay blank rather than "null".
+def as_string($v): if ($v | type) == "string" and ($v | length) > 0 then $v else null end;
+
+# The classic networkconf (one small array, fetched beside stat/health):
+# WAN rows carry the configured DNS the health report omits, and every
+# corporate row carries its subnet for the Networks tab. Null when unfetched.
+# Takes the conf array as an argument: call sites inside map() see the row
+# as `.`, not the top document.
+def wan_dns($conf; $ver):
+  [$conf[]?
+    | select(.purpose == "wan")
+    | (if $ver == 6 then [.wan_ipv6_dns1, .wan_ipv6_dns2] else [.wan_dns1, .wan_dns2] end)[]
+    | select(type == "string" and length > 0)]
+  | unique;
+
+# Subnet for one Integration network, matched to its classic row by name.
+# The Integration list and the classic config share names but not ids.
+def network_subnet($conf; $name):
+  (($conf | map(select(.name == $name)) | .[0].ip_subnet // null)
+   | if type == "string" and length > 0 then . else null end);
+
+# Configured names for the WAN keys (via wan_networkgroup), so a monitored
+# link keeps its name even when the /wans count and the health keys disagree.
+def wan_group_names($conf):
+  [($conf[]?
+    | select(.purpose == "wan" and (.wan_networkgroup | type) == "string")
+    | {key: .wan_networkgroup, value: .name})] | from_entries;
+
+# The gateway's row in the classic device table, matched by MAC: the only
+# source of its LAN address and public IPv6. Null when unfetched or unmatched
+# (an empty MAC never matches, so a degenerate row cannot stand in).
+def gateway_stat_row($table; $mac):
+  (if $mac == "" then null
+   else ((($table // []) | map(select((.mac // "" | ascii_downcase) == $mac)) | .[0]) // null) end);
+
+# First globally-routable IPv6 across the uplink blocks; a link-local fe80::/10
+# address is the neighbour on the wire, not the site, so it never counts.
+def public_ipv6($addrs):
+  ([(($addrs // [])[] | select(type == "string" and length > 0 and (test("^fe80:") | not)))] | .[0] // null);
+
+# Lowercased MAC or "": controller ids are matched case-insensitively, and a
+# non-string never reaches ascii_downcase to throw.
+def lower_mac: if type == "string" and length > 0 then ascii_downcase else "" end;
+
+# Classic stat/sta rows keyed by lowercase MAC: live radio health for the
+# Clients tab. Satisfaction outside 0–100 is the controller's "unknown" and
+# stays null rather than rendering "-1%".
+def sta_health($rows):
+  ([((($rows // [])[]
+      | select((.mac | type) == "string" and (.mac | length) > 0))
+     | {key: (.mac | ascii_downcase),
+        value: {signal: as_number(.signal),
+                satisfaction: (as_number(.satisfaction)
+                               | if type == "number" and . >= 0 and . <= 100
+                                 then . else null end)}})]
+   | from_entries);
+
+# Classic vap_table rows grouped by SSID: which AP broadcasts what, on which
+# radio and channel, with how many clients. The AP name rides from the table
+# row itself; rows without an ESSID (stale VAPs) are skipped.
+def vap_by_essid($table):
+  ([(($table // [])[] | {ap: (.name // ""), vap: ((.vap_table // [])[])})
+     | select((.vap.essid | type) == "string" and (.vap.essid | length) > 0)
+     | {essid: .vap.essid,
+        entry: {ap: (if .ap != "" then .ap else null end),
+                radio: (if (.vap.radio | type) == "string" then .vap.radio else "" end),
+                channel: as_number(.vap.channel),
+                clients: (as_number(.vap.num_sta) // 0)}}]
+   | group_by(.essid)
+   | map({key: .[0].essid, value: map(.entry)})
+   | from_entries);
+
 # The API's device.state values (the enum in the controller's OpenAPI document:
 # ONLINE, OFFLINE, PENDING_ADOPTION, UPDATING, GETTING_READY, ADOPTING,
 # DELETING, CONNECTION_INTERRUPTED, ISOLATED, U5G_INCORRECT_TOPOLOGY), folded
@@ -83,23 +156,38 @@ def report_history($mac):
   end;
 
 # WAN state from the classic stat/health "wan" subsystem, with link names from
-# the documented /wans list. uptime_stats is keyed WAN, WAN2, … in the same
-# order the controller lists the links, so the names are matched by position
-# when the counts agree and the key is used as the name otherwise.
+# the documented /wans list and DNS from the classic networkconf (the health
+# row's own nameservers are usually empty). uptime_stats is keyed WAN, WAN2, …
+# in the same order the controller lists the links, so the names are matched
+# by position when the counts agree and the key is used as the name otherwise.
+# The classic config also maps each key (via wan_networkgroup) to its
+# configured name, which wins whenever it names that exact key.
 def wan_state:
   if (.health // null) == null then null else
     ((.health // []) | map(select(.subsystem == "wan")) | .[0] // null) as $wan
     | ((.health // []) | map(select(.subsystem == "www")) | .[0] // null) as $www
+    | (.networkConf // []) as $network_conf
     | if $wan == null then null else
       ((.wans // []) | map(.name // "")) as $names
+      | wan_group_names($network_conf) as $group_names
       | (($wan.uptime_stats // {}) | to_entries | sort_by(.key)) as $links
       # The gateway's own uptime, to tell an unused port from a failed link:
       # a link whose downtime is as old as the gateway has never been up.
       | (($wan["gw_system-stats"].uptime // null) | if type == "string" then (tonumber? // null) else . end) as $gw_uptime
+      | (($wan.gateways // []) | map(select(type == "string"))) as $gateways
+      | ([($gateways[] | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")))] | .[0] // null) as $gateway_v4
+      | ([(($wan.nameservers // [])[] | select(type == "string" and length > 0))] | unique) as $health_dns
+      | ([($health_dns[] | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")))] + wan_dns($network_conf; 4) | unique) as $dns4
+      | ([($health_dns[] | select(contains(":")))] + wan_dns($network_conf; 6) | unique) as $dns6
       | {
           status: ($wan.status // "unknown"),
           ip: ($wan.wan_ip // null),
-          gateway: (($wan.gateways // [])[0] // null),
+          ipv6: ($wan.wan_ipv6 // $wan.ipv6 // null),
+          gateway: ($gateway_v4 // ($gateways[0] // null)),
+          gateways: $gateways,
+          netmask: as_string($wan.netmask),
+          dns4: $dns4,
+          dns6: $dns6,
           isp: ($wan.isp_name // $wan.isp_organization // null),
           asn: as_number($wan.asn),
           latencyMs: as_number($www.latency),
@@ -117,7 +205,8 @@ def wan_state:
                     or ($gw_uptime != null and ($u.downtime // 0) >= $gw_uptime - 600))) as $never_up
             | {
                 key: $key,
-                name: (if ($names | length) == ($links | length) then ($names[$i] // $key) else $key end),
+                name: (as_string($group_names[$key])
+                       // (if ($names | length) == ($links | length) then ($names[$i] // $key) else $key end)),
                 up: $up,
                 state: (if $up then "up" elif $never_up then "unused" else "down" end),
                 availabilityPct: as_number($u.availability),
@@ -174,6 +263,26 @@ def clients_per_device:
 | (as_number(.clientsTotal) // 0) as $clients_total
 | (if $clients_requested and $clients_total == 0
    then ($client_rows | clients_per_device) else {} end) as $per_device
+| ((.networks.data // []) | map(select(.["default"] == true)) | .[0].name // null) as $std_name
+| (.networkConf // []) as $network_conf_early
+| (.statDevice // []) as $stat_device
+| sta_health(.staClients) as $sta_by_mac
+| vap_by_essid($stat_device) as $vap_by_ssid
+# The gateway's own ipAddress is its WAN address, so its row would leak the
+# public IP. Its LAN address comes from the classic device table, falling
+# back to the host part of the default network's subnet (usually the
+# Management network's gateway); corporate rows share that fallback when
+# nothing is flagged default.
+| (((.devices // []) | map(select(kind == "gateway")) | .[0].macAddress // "" | ascii_downcase)) as $gw_mac
+| gateway_stat_row($stat_device; $gw_mac) as $gw_row
+| (as_string($gw_row.lan_ip)
+   // ((($network_conf_early | map(select(.name == $std_name)) | .[0].ip_subnet // null)
+      // ($network_conf_early | map(select(.purpose == "corporate"))
+         | map(.ip_subnet) | map(select(type == "string" and length > 0)) | .[0] // null))
+      | if type == "string" and length > 0 then (split("/")[0]) else null end)) as $gateway_lan_ip
+# The public IPv6 lives only in the classic device table's uplink blocks;
+# the health row carries none. Link-local stays out (see public_ipv6).
+| (public_ipv6((($gw_row.wan1.ipv6 // []) + ($gw_row.wan2.ipv6 // [])))) as $wan_ipv6
 | ((.devices // []) | map(
     (.state // "OFFLINE" | tostring) as $state
     | {
@@ -181,7 +290,8 @@ def clients_per_device:
         name: display_name,
         model: (.model // ""),
         mac: (.macAddress // ""),
-        ip: (.ipAddress // ""),
+        ip: (if kind == "gateway" and $gateway_lan_ip != null
+             then $gateway_lan_ip else (.ipAddress // "") end),
         state: $state,
         bucket: ($state | bucket),
         online: (($state | bucket) == "online"),
@@ -197,6 +307,7 @@ def clients_per_device:
 | (.pending // null) as $pending
 | (.wifi // null) as $wifi
 | (.networks // null) as $networks
+| (.networkConf // []) as $network_conf
 | (.vpnServers // null) as $vpn_servers
 | (.vpnTunnels // null) as $vpn_tunnels
 | {
@@ -213,9 +324,14 @@ def clients_per_device:
     # data); the oversized view links to its device list.
     controller: (if $device_total > 0 then {url: (.controllerUrl // "")} else null end),
     # The first gateway is the one whose statistics are fetched and graphed.
+    # The device table's public IPv6 wins over the health row's (which has
+    # none); either way a missing address stays null and renders blank.
     gateway: (if $gateway == null then null
               else {id: $gateway.id, name: $gateway.name, stats: $stats,
-                    history: report_history($gateway.mac), wan: $wan} end),
+                    history: report_history($gateway.mac),
+                    wan: (if $wan == null then null
+                          elif $wan_ipv6 != null then ($wan + {ipv6: $wan_ipv6})
+                          else $wan end)} end),
     # The controller's Network application version from /v1/info, for the
     # panel footer and for gating version-dependent calls. Null when unfetched.
     networkVersion: (if (.info.applicationVersion | type) == "string"
@@ -231,19 +347,27 @@ def clients_per_device:
       })) as $rows
       | {count: (as_number($pending.totalCount) // ($rows | length)), devices: $rows} end),
     # WiFi broadcasts from /v1/sites/<id>/wifi/broadcasts. Security is the
-    # API's raw enum (OPEN, WPA3_PERSONAL, …); the panel shortens it.
-    # Null when the request failed, so the widget keeps its last answer.
+    # API's raw enum (OPEN, WPA3_PERSONAL, …); the panel shortens it. Bands
+    # come from the broadcast itself; the APs, channels and per-radio client
+    # counts come from the classic device table's vap_table, matched by SSID
+    # name — empty until that hourly table answers. Null when the request
+    # failed, so the widget keeps its last answer.
     wifi: (if $wifi == null then null else
       ($wifi.data // [] | map({
         name: (.name // ""),
         enabled: (.enabled // false),
         security: (if (.securityConfiguration.type | type) == "string"
                    then .securityConfiguration.type else "" end),
-        iot: ((.type // "") == "IOT_OPTIMIZED")
+        iot: ((.type // "") == "IOT_OPTIMIZED"),
+        bands: ([(.broadcastingFrequenciesGHz // [])[]
+                 | select(type == "number")] | unique | sort),
+        radios: ($vap_by_ssid[.name // ""] // [])
       })) as $rows
       | {count: (as_number($wifi.totalCount) // ($rows | length)), networks: $rows} end),
     # Networks from /v1/sites/<id>/networks. Management is the API's raw enum
-    # (GATEWAY, SWITCH, UNMANAGED); the panel shortens it. Null when the
+    # (GATEWAY, SWITCH, UNMANAGED); the panel shortens it. The overview rows
+    # carry no addresses, so each row's subnet is merged from the classic
+    # networkconf by name (its ip_subnet, e.g. "10.24.1.1/27"). Null when the
     # request failed, so the widget keeps its last answer.
     networks: (if $networks == null then null else
       ($networks.data // [] | map({
@@ -251,7 +375,8 @@ def clients_per_device:
         vlanId: as_number(.vlanId),
         enabled: (.enabled // false),
         management: (if (.management | type) == "string" then .management else "" end),
-        standard: (.["default"] // false)
+        standard: (.["default"] // false),
+        subnet: network_subnet($network_conf; (.name // ""))
       })) as $rows
       | {count: (as_number($networks.totalCount) // ($rows | length)), networks: $rows} end),
     # VPN servers and site-to-site tunnels. The overviews carry no live
@@ -272,21 +397,25 @@ def clients_per_device:
         })) end) as $tunnels
       | if $servers == null and $tunnels == null then null
         else {servers: ($servers // []), tunnels: ($tunnels // [])} end),
-    # Connected clients from the opt-in /clients fetch. Unrequested, the
-    # block is null and the panel keeps its health-report totals. Past the
-    # row cap only the claimed count survives and the breakdown is nulls.
+    # Connected clients from the opt-in /clients fetch, with live radio
+    # health (signal, satisfaction) from classic stat/sta joined by MAC —
+    # the Integration list carries neither. Unrequested, the block is null
+    # and the panel keeps its health-report totals. Past the row cap only
+    # the claimed count survives and the breakdown is nulls.
     clientsDetail: (
       if ($clients_requested | not) then null
       elif $clients_total > 0 then
         {count: $clients_total, wired: null, wireless: null, vpn: null,
          teleport: null, guests: null, vpnClients: []}
       else
-        ($client_rows | map(.type as $t | {
+        ($client_rows | map(.type as $t | (.macAddress | lower_mac) as $mac | {
            kind: ($t | client_kind),
            guest: ((.access.type // "") == "GUEST"),
            uplink: (.uplinkDeviceId // ""),
            name: (.name // ""),
-           ip: (.ipAddress // "")
+           ip: (.ipAddress // ""),
+           signal: ($sta_by_mac[$mac].signal // null),
+           satisfaction: ($sta_by_mac[$mac].satisfaction // null)
          })) as $rows
         | {count: ($rows | length),
            wired: ($rows | map(select(.kind == "wired")) | length),
@@ -296,8 +425,9 @@ def clients_per_device:
            guests: ($rows | map(select(.guest)) | length),
            vpnClients: ($rows | map(select(.kind == "vpn"))
                         | map({name: .name, ip: .ip})[:10]),
-           list: ($rows | map({name: .name, kind: .kind,
-                               guest: .guest, ip: .ip}))} end),
+           list: ($rows | map({name: .name, kind: .kind, guest: .guest,
+                               ip: .ip, signal: .signal,
+                               satisfaction: .satisfaction}))} end),
     summary: {
       devices: (if $device_total > 0 then $device_total else ($devices | length) end),
       online: ($devices | map(select(.bucket == "online")) | length),

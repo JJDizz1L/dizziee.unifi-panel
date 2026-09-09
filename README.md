@@ -3,16 +3,17 @@
 Watch your UniFi network from the Omarchy bar: every access point, switch and
 gateway on a site with its online state, model, address and how many clients
 hang off it, plus wired/wireless client totals, the site's WiFi networks
-with their security, its networks with their VLAN ids, its VPN servers
+with their security, bands and per-access-point channels, its networks with their subnets and VLAN ids, its VPN servers
 and tunnels, and devices still waiting for adoption. The bar icon carries a badge
 with the number of offline devices, and a notification fires when a device
-drops or comes back. Under the gateway it shows what is flowing through the
-WAN — download and upload right now, each with a graph of the last twelve
-hours — plus CPU, memory, load and uptime, and the WAN: public address and
-upstream gateway, ISP, and each WAN link's latency, uptime and 24-hour
-availability, so a failed-over or dead backup link is visible. Click any
-device to expand its load figures, switch ports and radio details. It is
-read-only.
+drops or comes back. Under the gateway on Overview it shows what is flowing
+through the WAN — download and upload right now, each with a graph of the last
+twelve hours — plus CPU, memory, load and uptime. Click the gateway on the
+Devices tab to see the WAN detail instead: public IPv4 and IPv6 addresses and
+upstream gateway, IPv4 and IPv6 DNS, ISP, and each WAN link's latency, uptime
+and 24-hour availability, so a failed-over or dead backup link is visible.
+Click any other device to expand its load figures, switch ports and radio
+details. It is read-only.
 
 ![The panel listing a gateway with its WAN rates, two 12-hour graphs, health line and WAN links,
 then two access points and two switches with their state, address and client
@@ -73,7 +74,9 @@ traffic graph: the documented API only reports the current rates, so the
 graph reads the five-minute WAN buckets from the classic report endpoint
 (`…/api/s/<site>/stat/report/5minutes.gw`) that the UniFi UI's own charts
 use, and the WAN lines read the classic `stat/health` (link names come from
-the documented `/wans`). Both are undocumented; if they stop answering, the
+the documented `/wans`, falling back to the configured names in the classic
+`rest/networkconf`, which also lends the Networks tab its subnets and the WAN
+detail its DNS). Both are undocumented; if they stop answering, the
 graph falls back to the samples the widget collects itself while the shell
 runs, and the WAN lines simply disappear.
 
@@ -82,10 +85,10 @@ runs, and the WAN lines simply disappear.
 Under the widget's settings in the bar:
 
 - Show the connected client count on the bar icon
-- Fetch the client list for type breakdown and per-device counts
+- Fetch the client list for type breakdown, signal strength, satisfaction and per-device counts
 - Show the gateway's WAN graph, CPU, memory and uptime
 - Show WiFi networks with their security in the panel
-- Show networks with their VLAN ids in the panel
+- Show networks with their subnets and VLAN ids in the panel
 - Show VPN servers and tunnels in the panel
 - Refresh interval while the panel is open, and the background poll interval
 - Notify when a device goes offline / comes back online, with a per-device

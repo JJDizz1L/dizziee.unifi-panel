@@ -101,7 +101,8 @@ class H(BaseHTTPRequestHandler):
         if p.endswith("/wifi/broadcasts"):
             return self._send(200, {"data": [
                 {"name": "Home", "enabled": True, "type": "STANDARD",
-                 "securityConfiguration": {"type": "WPA3_PERSONAL"}},
+                 "securityConfiguration": {"type": "WPA3_PERSONAL"},
+                 "broadcastingFrequenciesGHz": [2.4, 5]},
                 {"name": "Guest", "enabled": False, "type": "STANDARD",
                  "securityConfiguration": {"type": "OPEN"}}],
                 "totalCount": 2})
@@ -120,10 +121,34 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, {"data": [
                 {"name": "Office", "type": "IPSEC"}],
                 "totalCount": 1})
+        if p.endswith("/rest/networkconf"):
+            return self._send(200, {"data": [
+                {"name": "Default", "purpose": "corporate",
+                 "ip_subnet": "192.168.1.1/24"},
+                {"name": "Guest", "purpose": "corporate",
+                 "ip_subnet": "192.168.20.1/24"}],
+                "totalCount": 2})
         if p.endswith("/stat/health"):
             return self._send(200, {"data": [
                 {"subsystem": "wlan", "num_user": 9, "num_guest": 0, "num_iot": 1},
-                {"subsystem": "lan", "num_user": 5, "num_guest": 0, "num_iot": 0}]})
+                {"subsystem": "lan", "num_user": 5, "num_guest": 0, "num_iot": 0},
+                {"subsystem": "wan", "status": "ok", "wan_ip": "203.0.113.7",
+                 "gateways": ["203.0.113.1"], "netmask": "255.255.255.0",
+                 "isp_name": "Example ISP", "asn": 64496,
+                 "uptime_stats": {"WAN": {"availability": 99.5, "uptime": 3600,
+                                          "time_period": 86400}}}]})
+        if p.endswith("/stat/device"):
+            return self._send(200, {"data": [
+                {"mac": "aa:bb:cc:00:00:04", "lan_ip": "192.168.1.1",
+                 "wan1": {"ipv6": ["2001:db8::99", "fe80::1"]}}],
+                "totalCount": 1})
+        if p.endswith("/stat/sta"):
+            return self._send(200, {"data": [
+                {"mac": "aa:bb:cc:00:00:20",
+                 "signal": -40, "satisfaction": 100},
+                {"mac": "aa:bb:cc:00:00:21",
+                 "signal": -52, "satisfaction": 99}],
+                "totalCount": 2})
         if "/devices/" in p and not p.endswith("/statistics/latest"):
             did = p.rsplit("/", 1)[-1]
             for d in fixture["devices"]:
@@ -217,14 +242,21 @@ if jq -e '.error == null and (.site.name | length > 0) and .site.ref == "default
    && jq -e '.pending.count == 1 and .pending.devices[0].model == "U6-Lite"
              and .pending.devices[0].ip == "192.168.1.9"' >/dev/null 2>&1 <<<"$out" \
    && jq -e '.wifi.count == 2 and .wifi.networks[0].security == "WPA3_PERSONAL"
-             and .wifi.networks[1].enabled == false' >/dev/null 2>&1 <<<"$out" \
+              and .wifi.networks[0].bands == [2.4, 5]
+              and .wifi.networks[1].enabled == false' >/dev/null 2>&1 <<<"$out" \
    && jq -e '.networks.count == 2 and .networks.networks[0].vlanId == 1
-             and .networks.networks[0].standard == true
-             and .networks.networks[1].enabled == false' >/dev/null 2>&1 <<<"$out" \
+              and .networks.networks[0].standard == true
+              and .networks.networks[0].subnet == "192.168.1.1/24"
+              and .networks.networks[1].enabled == false
+              and .networks.networks[1].subnet == "192.168.20.1/24"' >/dev/null 2>&1 <<<"$out" \
    && jq -e '.vpn.servers[0].type == "WIREGUARD"
-             and .vpn.tunnels[0].name == "Office"' >/dev/null 2>&1 <<<"$out" \
+              and .vpn.tunnels[0].name == "Office"' >/dev/null 2>&1 <<<"$out" \
+   && jq -e '.gateway.wan.ip == "203.0.113.7"
+              and .gateway.wan.ipv6 == "2001:db8::99"
+              and .gateway.wan.isp == "Example ISP"' >/dev/null 2>&1 <<<"$out" \
    && (( $(grep -cF 'sites?' "$work/requests") == 1 )) \
-   && ! grep -q clients "$work/requests"; then
+    && ! grep -q clients "$work/requests" \
+    && ! grep -q 'stat/sta' "$work/requests"; then
   ok "renders the fixture; a poll handed the site skips the lookup"
 else
   fail "renders the fixture; a poll handed the site skips the lookup" "$out ($(grep -cF 'sites?' "$work/requests") site list requests)"
@@ -242,14 +274,18 @@ if jq -e '.error == null and .clientsDetail.count == 4
          and .clientsDetail.vpnClients[0].name == "Road Warrior"
          and .clientsDetail.list[1].kind == "wireless"
          and .clientsDetail.list[1].ip == "192.168.1.21"
+         and .clientsDetail.list[1].signal == -52
+         and .clientsDetail.list[1].satisfaction == 99
+         and .clientsDetail.list[0].signal == -40
          and ([.devices[] | select(.id == "d1")][0].clients) == 2
          and ([.devices[] | select(.id == "d2")][0].clients) == 1
          and ([.devices[] | select(.id == "d4")][0].clients) == 0' \
      >/dev/null 2>&1 <<<"$out" \
-   && (( $(grep -cF '/clients?' "$work/requests") == 1 )); then
-  ok "fetches the client list with --clients: breakdown and per-device join"
+   && (( $(grep -cF '/clients?' "$work/requests") == 1 )) \
+   && (( $(grep -cF '/stat/sta' "$work/requests") == 1 )); then
+  ok "fetches the client list with --clients: breakdown, signal join and per-device join"
 else
-  fail "fetches the client list with --clients: breakdown and per-device join" "${out:0:300}"
+  fail "fetches the client list with --clients: breakdown, signal join and per-device join" "${out:0:300}"
 fi
 stop_stub
 
@@ -295,7 +331,7 @@ evil_ref=$'default"\noutput = '"$HOME/pwned2"
 start_stub "$(jq -cn --arg ref "$evil_ref" '[{id: "site-1", name: "Default", internalReference: $ref}]')"
 out=$("$PLUGIN_DIR/unifi-fetch")
 if jq -e '.error == null' >/dev/null 2>&1 <<<"$out" && [[ ! -e $HOME/pwned2 ]] \
-   && ! grep -q 'POST\|stat/health' "$work/requests" 2>/dev/null; then
+    && ! grep -q 'POST\|stat/health\|stat/device\|rest/networkconf' "$work/requests" 2>/dev/null; then
   ok "skips the classic API when the internal reference is not a plain token"
 else
   fail "skips the classic API when the internal reference is not a plain token" "$out

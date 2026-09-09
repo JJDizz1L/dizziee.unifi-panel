@@ -210,6 +210,13 @@ Panel {
   // Re-evaluated on a timer: a binding on Date.now() alone would never update.
   property real nowMs: 0
 
+  // Which radio the WiFi tab's per-SSID line shows. Steps every few seconds
+  // so one line cycles through an SSID's radios ("…2.4GHz channel 11" →
+  // "…5GHz channel 116" → …) instead of cramming them side by side. The
+  // radios themselves come from the hourly-cached device table, so the
+  // cycling costs no requests — just a repaint.
+  property int wifiRadioCycle: 0
+
   // A failed poll leaves the previous list in place, which is right for the
   // panel. The bar badge is a claim about right now, so once the data is older
   // than three polls it says nothing rather than something wrong.
@@ -229,10 +236,41 @@ Panel {
     return String(summary.clients)
   }
 
+  // The controller's radio codes, shortened. Unknown values pass through
+  // raw — every text showing them sets PlainText, like the other data.
+  function radioBandLabel(radio) {
+    switch (radio) {
+      case "ng": return "2.4"
+      case "na": return "5"
+      case "6e": return "6"
+      default: return radio ? String(radio) : ""
+    }
+  }
+
+  // Configured bands, already sorted numbers: "2.4/5/6GHz". Only the
+  // bands the controller reports appear — 2.4, 2.4/5, 5/6, 6, whichever.
+  function wifiBandsLabel(bands) {
+    if (!bands || bands.length === 0) return ""
+    return bands.join("/") + "GHz"
+  }
+
+  // One actual radio under an SSID, from the classic device table:
+  // "Millennial Router 2.4GHz channel 11". The Radios tab line cycles
+  // through these (see wifiRadioCycle); a radio without a channel shows
+  // its band alone, and an entry without an AP skips the name.
+  function wifiRadioText(radios, index) {
+    if (!radios || radios.length === 0) return ""
+    var r = radios[index % radios.length]
+    if (!r) return ""
+    var band = radioBandLabel(r.radio)
+    var text = (r.ap ? r.ap + " " : "") + (band !== "" ? band + "GHz" : "")
+    if (r.channel) text += (text !== "" ? " channel " : "channel ") + r.channel
+    return text.trim()
+  }
+
   // The API's security enum, shortened. Unknown values pass through raw —
   // every text showing them sets PlainText, like the other controller data.
-  function wifiSecurityLabel(security) {
-    switch (security) {
+  function wifiSecurityLabel(security) {    switch (security) {
       case "OPEN": return "Open"
       case "WPA2_PERSONAL": return "WPA2"
       case "WPA3_PERSONAL": return "WPA3"
@@ -270,10 +308,10 @@ Panel {
     return wifi.count + (wifi.count === 1 ? " WiFi network" : " WiFi networks")
   }
 
-  // Gateway-managed, switch-managed or unmanaged; default network tagged.
+  // Subnet first when the classic config knew it, then the VLAN id.
   function networkDetailLabel(net) {
     var parts = []
-    if (net.standard) parts.push("default")
+    if (net.subnet) parts.push(net.subnet)
     if (net.vlanId !== null && net.vlanId !== undefined) parts.push("VLAN " + net.vlanId)
     if (!net.enabled) parts.push("Off")
     return parts.join("  ·  ")
@@ -802,11 +840,24 @@ Panel {
     onTriggered: root.nowMs = Date.now()
   }
 
+  Timer {
+    // Steps the WiFi tab's radio line. Only while the panel is open: a
+    // closed panel shows nothing to cycle.
+    interval: 3500
+    running: root.opened
+    repeat: true
+    onTriggered: root.wifiRadioCycle++
+  }
+
   // The gateway (with its statistics block) stays put at the top; every
   // other device scrolls in a list below it, so a large fleet cannot push
   // the panel off the screen or the gateway out of view.
   readonly property var gatewayDevices: devices.filter(function(d) { return d.kind === "gateway" })
   readonly property var otherDevices: devices.filter(function(d) { return d.kind !== "gateway" })
+  // The Devices tab lists everything, gateways first: a site whose only
+  // device is the gateway still has something to show there — its addresses,
+  // behind a click — instead of a pointer back at Overview.
+  readonly property var deviceTabDevices: gatewayDevices.concat(otherDevices)
 
   // A newly opened panel should not show data from twenty minutes ago.
   onOpenedChanged: if (opened) refresh()
@@ -1287,6 +1338,10 @@ Panel {
                 text: {
                   var parts = [root.clientTypeLabel(clientRow.modelData.kind)]
                   if (clientRow.modelData.guest) parts.push("Guest")
+                  if (typeof clientRow.modelData.signal === "number")
+                    parts.push(clientRow.modelData.signal + " dBm")
+                  if (typeof clientRow.modelData.satisfaction === "number")
+                    parts.push(clientRow.modelData.satisfaction + "%")
                   if (clientRow.modelData.ip !== "") parts.push(clientRow.modelData.ip)
                   return parts.filter(function(s) { return s !== "" }).join("  ·  ")
                 }
@@ -1397,31 +1452,59 @@ Panel {
             model: root.wifi && root.wifi.networks
               ? root.wifi.networks.slice(0, 8) : []
 
-            Row {
-              id: wifiRow
+            // One SSID: name and security with its bands, then the actual
+            // radios below — which AP, on what band and channel.
+            Column {
+              id: wifiEntry
               required property var modelData
               width: parent.width
-              spacing: Style.space(8)
+              spacing: 0
 
-              Text {
-                textFormat: Text.PlainText
-                id: wifiName
-                width: parent.width - wifiDetail.implicitWidth - Style.space(8)
-                elide: Text.ElideRight
-                text: (wifiRow.modelData.name !== "" ? wifiRow.modelData.name : "Unnamed network")
-                  + (wifiRow.modelData.iot ? "  ·  IoT" : "")
-                color: wifiRow.modelData.enabled ? Color.popups.text : root.detailColor
-                font.family: Style.font.family
-                font.pixelSize: Style.font.caption
+              Row {
+                id: wifiRow
+                width: parent.width
+                spacing: Style.space(8)
+
+                Text {
+                  textFormat: Text.PlainText
+                  id: wifiName
+                  width: parent.width - wifiDetail.implicitWidth - Style.space(8)
+                  elide: Text.ElideRight
+                  text: (wifiEntry.modelData.name !== "" ? wifiEntry.modelData.name : "Unnamed network")
+                    + (wifiEntry.modelData.iot ? "  ·  IoT" : "")
+                  color: wifiEntry.modelData.enabled ? Color.popups.text : root.detailColor
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  id: wifiDetail
+                  text: {
+                    if (!wifiEntry.modelData.enabled) return "Off"
+                    var label = root.wifiSecurityLabel(wifiEntry.modelData.security)
+                    var bands = root.wifiBandsLabel(wifiEntry.modelData.bands)
+                    return bands !== "" ? label + "  ·  " + bands : label
+                  }
+                  // An open network is a security fact, not trivia: the
+                  // theme's urgent token, never a hardcoded red.
+                  color: !wifiEntry.modelData.enabled
+                    ? root.detailColor
+                    : (wifiEntry.modelData.security === "OPEN" ? Color.urgent : root.detailColor)
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                }
               }
 
               Text {
                 textFormat: Text.PlainText
-                id: wifiDetail
-                text: wifiRow.modelData.enabled ? root.wifiSecurityLabel(wifiRow.modelData.security) : "Off"
+                width: parent.width
+                elide: Text.ElideRight
+                visible: wifiEntry.modelData.enabled && text !== ""
+                text: root.wifiRadioText(wifiEntry.modelData.radios, root.wifiRadioCycle)
                 color: root.detailColor
                 font.family: Style.font.family
-                font.pixelSize: Style.font.caption
+                font.pixelSize: Math.max(8, Math.round(Style.font.caption * 0.9))
               }
             }
           }
@@ -1582,14 +1665,13 @@ Panel {
 
           textFormat: Text.PlainText
           width: parent.width
-          // The gateway lives on Overview, so a single-gateway site leaves
-          // this tab with nothing to list. Say so instead of blank space.
+          // An empty site still says so instead of showing blank space.
+          // Gateways list here like everything else, so there is no
+          // single-gateway special case anymore.
           visible: root.initialized && !root.needsLogin && root.lastError === ""
             && root.activeTab === "DEVICES"
-            && root.otherDevices.length === 0 && !root.oversized
-          text: root.devices.length === 0
-            ? "No devices on this site."
-            : "Only the gateway — see Overview."
+            && root.deviceTabDevices.length === 0 && !root.oversized
+          text: "No devices on this site."
           color: root.detailColor
           font.family: Style.font.family
           font.pixelSize: Style.font.body
@@ -1615,6 +1697,9 @@ Panel {
               width: column.width
               device: gatewayEntry.modelData
               host: root
+              // No role glyph here: a single gateway needs no introduction
+              // and the text takes the full width.
+              showGlyph: false
               expanded: root.expandedDeviceId !== ""
                 && String(gatewayEntry.modelData.id) === root.expandedDeviceId
               gatewayStats: root.showGatewayStats && root.gateway && root.gateway.stats
@@ -1678,7 +1763,7 @@ Panel {
 
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-          model: root.otherDevices
+          model: root.deviceTabDevices
 
           delegate: DeviceRow {
             id: deviceEntry
@@ -1690,6 +1775,14 @@ Panel {
             host: root
             expanded: root.expandedDeviceId !== ""
               && String(deviceEntry.modelData.id) === root.expandedDeviceId
+            // Gateways list here without graphs: the row header carries the
+            // basic facts (name, model, address) and a click opens the WAN
+            // addresses plus the usual ports/radios detail.
+            gatewayStats: null
+            wanState: (deviceEntry.modelData.kind === "gateway" && root.gateway
+                && String(deviceEntry.modelData.id) === String(root.gateway.id))
+              ? (root.gateway.wan || null) : null
+            showWanOnExpand: deviceEntry.modelData.kind === "gateway"
           }
         }
 

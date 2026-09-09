@@ -45,7 +45,10 @@ Omarchy bar-widget plugin. This checkout *is* the installed plugin
   features `switching|accessPoint|gateway`, interfaces `ports|radios`,
   client `type` `WIRED|WIRELESS|VPN|TELEPORT` (only the first two carry
   `uplinkDeviceId`); `/info` returns
-  `{"applicationVersion": …}`. A gateway's `ipAddress` is its WAN address.
+   `{"applicationVersion": …}`. A gateway's `ipAddress` is its WAN address,
+   so the widget shows the host part of the default network's `ip_subnet`
+   (from the classic config) in its row instead; the public address lives
+   only in the Devices-tab expansion.
 
 ## The report API
 
@@ -60,19 +63,48 @@ Omarchy bar-widget plugin. This checkout *is* the installed plugin
 
 - Client counts come solely from the classic stat/health rows (wlan and lan
   `num_user + num_guest + num_iot`; no VPN figure exists there). The
-  Integration `/clients` endpoint is never called — the widget shows no
-  per-device client counts for the same reason.
+  Integration `/clients` endpoint is opt-in only (`--clients`, when the
+  widget's showClients setting is on): type breakdown, guest split, VPN
+  names and per-device counts by `uplinkDeviceId`. The same flag fetches
+  classic `stat/sta` for live radio health — `signal` (dBm) and
+  `satisfaction` (0–100; anything else is "unknown" and stays null) —
+  joined by MAC, so unjoined rows simply show none. Live, uncached, small
+  on a small site; bounded by the shared 1 MB budget and never fatal.
+  Past the row cap only the claimed total survives.
+
+- WiFi bands come from each broadcast's `broadcastingFrequenciesGHz`; the
+  APs and channels come from the cached device table's `vap_table`,
+  grouped by ESSID (`radio` ng/na/6e → 2.4/5/6, actual `channel`, `num_sta`
+  per radio). Empty until that hourly table answers.
 
 - WAN state comes from classic `…/api/s/<site>/stat/health` (GET, same key):
-  the `wan` subsystem row has `status, wan_ip, gateways[], isp_name, asn,
-  uptime_stats{WAN, WAN2, …}` (availability, latency_average, uptime or
-  downtime, time_period 86400) and the `www` row has `latency, uptime`. Link
-  names come from the documented `/sites/{id}/wans`, matched by position
-  only when the counts agree. Fetched every poll; small. Failure → `wan`
-  null → no WAN lines. A link is `unused` (shown muted as "Not connected")
+  the `wan` subsystem row has `status, wan_ip, gateways[], netmask,
+  nameservers[] (usually empty), isp_name, asn, uptime_stats{WAN, WAN2, …}`
+  (availability, latency_average, uptime or downtime, time_period 86400) and
+  the `www` row has `latency, uptime`. The upstream shown is the first IPv4
+  entry in `gateways[]` — the controller lists the link-local IPv6 first.
+  The public IPv6 lives only in the classic device table (`stat/device`,
+  `wan1.ipv6[]`, first non-`fe80:` entry winning); the health row carries
+  none, so `ipv6` stays null (shown blank) until the table answers. That
+  table is tens of KB per device, so it is cached an hour in
+  `$XDG_RUNTIME_DIR/omarchy-unifi/device-<site>.json` with a stale-cache
+  fallback — a failed refresh never blanks a known address. The same table
+  lends the gateway row its LAN address (`lan_ip`, ahead of the subnet
+  fallback). Link names come from the documented
+  `/sites/{id}/wans`, matched by position only when the counts agree, with
+  the classic `rest/networkconf` names (via `wan_networkgroup`) winning per
+  key — a site with two WANs defined but one monitored still names its link.
+  The same config lends the WAN detail its DNS (`wan_dns1/2`,
+  `wan_ipv6_dns1/2` from the `purpose == "wan"` rows) and the Networks tab
+  its subnets (`ip_subnet` matched by network name). Fetched every poll;
+  small. Failure → `wan` null → no WAN lines, `subnet` null → no subnet.
+  The WAN block renders only in the Devices-tab gateway expansion (gated
+  behind a click, like the ports); Overview keeps the graphs and health
+  line with no addresses. A link is `unused` (shown muted as "Not connected")
   when it has no uptime and its downtime reaches back to the gateway's boot
   (`gw_system-stats.uptime`, ±10 min): an empty second WAN port looks like
   that and is not a fault. A link that was up and dropped is `down`.
+  Checked live against Network 10.6.101 (UDR7) on 2026-09-09.
 
 ## Testing the graph
 

@@ -89,11 +89,19 @@ Column {
     if (radio.channel !== null && radio.channel !== undefined) parts.push("ch " + radio.channel)
     if (radio.channelWidthMHz !== null && radio.channelWidthMHz !== undefined)
       parts.push(radio.channelWidthMHz + " MHz")
-    var retries = retriesFor(radio.frequencyGHz)
-    if (retries !== null && retries !== undefined && isFinite(retries))
-      parts.push((Math.round(retries * 10) / 10) + "% retries")
     return parts.join("  ·  ")
   }
+
+  // Retry rate for one radio, or "" when the controller sent none.
+  function retriesText(frequencyGHz) {
+    var retries = retriesFor(frequencyGHz)
+    if (retries === null || retries === undefined || !isFinite(retries)) return ""
+    return (Math.round(retries * 10) / 10) + "% retries"
+  }
+
+  // Past this sustained retry rate the band is struggling and the figure
+  // alarms in the theme's urgent token.
+  readonly property real retryAlarmPct: 10
 
   Text {
     textFormat: Text.PlainText
@@ -184,7 +192,8 @@ Column {
       Text {
         textFormat: Text.PlainText
         id: radioName
-        width: parent.width - radioDetail.implicitWidth - Style.space(8)
+        width: parent.width - radioInfo.implicitWidth - Style.space(8)
+          - (radioRetries.visible ? radioRetries.implicitWidth + Style.space(8) : 0)
         elide: Text.ElideRight
         text: {
           var freq = radioRow.modelData.frequencyGHz
@@ -197,9 +206,26 @@ Column {
 
       Text {
         textFormat: Text.PlainText
-        id: radioDetail
+        id: radioInfo
         text: detail.radioDetail(radioRow.modelData)
         color: detail.host.detailColor
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
+      }
+
+      Text {
+        textFormat: Text.PlainText
+        id: radioRetries
+        visible: text !== ""
+        text: {
+          var retries = detail.retriesText(radioRow.modelData.frequencyGHz)
+          return retries !== "" ? "·  " + retries : ""
+        }
+        color: {
+          var rate = detail.retriesFor(radioRow.modelData.frequencyGHz)
+          return (rate !== null && rate !== undefined && rate >= detail.retryAlarmPct)
+            ? Color.urgent : detail.host.detailColor
+        }
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
       }

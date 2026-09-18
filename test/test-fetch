@@ -33,10 +33,13 @@ printf '#!/bin/sh\nexit 0\n' >"$work/bin/omarchy-shell"
 chmod +x "$work/bin/secret-tool" "$work/bin/omarchy-shell"
 export PATH="$work/bin:$PATH"
 
-# Everything the scripts would touch on the machine is redirected here.
+# Everything the scripts would touch on the machine is redirected here,
+# including the on-disk caches (version/report/device under XDG_CACHE_HOME).
 export XDG_STATE_HOME="$work/state"
 export XDG_RUNTIME_DIR="$work/runtime"
 mkdir -p "$XDG_RUNTIME_DIR"
+export XDG_CACHE_HOME="$work/cache"
+mkdir -p "$XDG_CACHE_HOME"
 export HOME="$work/home"
 mkdir -p "$HOME"
 
@@ -215,7 +218,7 @@ start_stub() { # sites-json [mode]
   printf 'url=http://127.0.0.1:%s/integration/v1\nsite=%s\ninsecure=0\n' \
     "$port" "$(jq -r '.[0].id // ""' <<<"$1")" >"$XDG_STATE_HOME/omarchy/unifi/config"
   # Each case starts with a cold version cache so its /info request is its own.
-  rm -f "$XDG_RUNTIME_DIR/omarchy-unifi/version.json"
+  rm -f "$XDG_CACHE_HOME/omarchy/unifi/version.json"
 }
 
 stop_stub() {

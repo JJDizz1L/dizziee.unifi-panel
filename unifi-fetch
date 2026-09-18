@@ -47,6 +47,12 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 readonly NORMALIZE="$SCRIPT_DIR/normalize.jq"
 
+# Persistent caches live on disk under the per-user cache dir — never in
+# $XDG_RUNTIME_DIR (tmpfs RAM, wiped every boot). XDG_CACHE_HOME defaults to
+# ~/.cache, which is ours alone; umask 077 (set at the top) keeps the files
+# private, so no shared-/tmp symlink games apply.
+UNIFI_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy/unifi"
+
 # shellcheck source=lib/unifi-common.sh
 source "$SCRIPT_DIR/lib/unifi-common.sh" || {
   printf '{"error":"lib/unifi-common.sh is missing from the plugin folder"}\n'
@@ -200,15 +206,14 @@ fi
 # calls later. Controller-wide and slow-moving, so it is cached for an hour;
 # a failure here is never fatal and simply leaves the version unknown.
 info=null
-info_cache=""
-[[ -n ${XDG_RUNTIME_DIR:-} ]] && info_cache="$XDG_RUNTIME_DIR/omarchy-unifi/version.json"
-if [[ -n $info_cache && -f $info_cache ]] && (( $(date +%s) - $(stat -c %Y "$info_cache") < 3600 )); then
+info_cache="$UNIFI_CACHE_DIR/version.json"
+if [[ -f $info_cache ]] && (( $(date +%s) - $(stat -c %Y "$info_cache") < 3600 )); then
   info=$(cat "$info_cache")
 else
   unifi_http "/info" "$API_KEY"
   if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e 'type == "object"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
     info="$UNIFI_HTTP_BODY"
-    [[ -n $info_cache ]] && mkdir -p "$(dirname "$info_cache")" && printf '%s' "$info" >"$info_cache"
+    mkdir -p "$UNIFI_CACHE_DIR" && printf '%s' "$info" >"$info_cache"
   fi
 fi
 
@@ -325,15 +330,12 @@ fi
 # are simply skipped.
 site_name=$(jq -r '.internalReference // empty' <<<"$site")
 unifi_is_token "$site_name" || site_name=""
-# The cache lives only in the per-user runtime dir: a shared /tmp fallback
-# would let another local user pre-create the directory and plant a
-# symlink where the report is written. Without a runtime dir there is no
-# cache and the report is simply fetched every poll.
+# The buckets only move every five minutes, so the answer is cached for four
+# on disk (see UNIFI_CACHE_DIR) and every poll in between reuses it.
 report=null
-report_cache=""
-[[ -n ${XDG_RUNTIME_DIR:-} ]] && report_cache="$XDG_RUNTIME_DIR/omarchy-unifi/report-$site_id.json"
+report_cache="$UNIFI_CACHE_DIR/report-$site_id.json"
 if [[ -n $gateway_id ]]; then
-  if [[ -n $report_cache && -f $report_cache ]] && (( $(date +%s) - $(stat -c %Y "$report_cache") < 240 )); then
+  if [[ -f $report_cache ]] && (( $(date +%s) - $(stat -c %Y "$report_cache") < 240 )); then
     report=$(cat "$report_cache")
   else
     now_ms=$(( $(date +%s) * 1000 ))
@@ -343,8 +345,8 @@ if [[ -n $gateway_id ]]; then
       unifi_http_post "$(unifi_classic_base)/api/s/$site_name/stat/report/5minutes.gw" "$body" "$API_KEY"
       if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
         report=$(jq -c '.data' <<<"$UNIFI_HTTP_BODY")
-        # $XDG_RUNTIME_DIR is ours already; umask 077 keeps our directory private.
-        [[ -n $report_cache ]] && mkdir -p "$(dirname "$report_cache")" && printf '%s' "$report" >"$report_cache"
+        # The cache dir is ours already; umask 077 keeps our files private.
+        mkdir -p "$UNIFI_CACHE_DIR" && printf '%s' "$report" >"$report_cache"
       fi
     fi
   fi
@@ -390,9 +392,8 @@ if [[ -n $gateway_id ]]; then
     # the table is cached for an hour; a failed refresh keeps the stale
     # cache, and only a site never successfully read shows blanks.
     stat_device=null
-    stat_cache=""
-    [[ -n ${XDG_RUNTIME_DIR:-} ]] && stat_cache="$XDG_RUNTIME_DIR/omarchy-unifi/device-$site_id.json"
-    if [[ -n $stat_cache && -f $stat_cache ]] &&
+    stat_cache="$UNIFI_CACHE_DIR/device-$site_id.json"
+    if [[ -f $stat_cache ]] &&
        stat_device=$(cat "$stat_cache") &&
        jq -e 'type == "array"' >/dev/null 2>&1 <<<"$stat_device" &&
        (( $(date +%s) - $(stat -c %Y "$stat_cache") < 3600 )); then
@@ -405,9 +406,9 @@ if [[ -n $gateway_id ]]; then
       UNIFI_API_BASE="$UNIFI_API_BASE_SAVED"
       if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
         stat_device=$(jq -c '.data' <<<"$UNIFI_HTTP_BODY")
-        # $XDG_RUNTIME_DIR is ours already; umask 077 keeps our directory private.
-        [[ -n $stat_cache ]] && mkdir -p "$(dirname "$stat_cache")" && printf '%s' "$stat_device" >"$stat_cache"
-      elif [[ -n $stat_cache && -f $stat_cache ]] &&
+        # The cache dir is ours already; umask 077 keeps our files private.
+        mkdir -p "$UNIFI_CACHE_DIR" && printf '%s' "$stat_device" >"$stat_cache"
+      elif [[ -f $stat_cache ]] &&
            stat_device=$(cat "$stat_cache") &&
            jq -e 'type == "array"' >/dev/null 2>&1 <<<"$stat_device"; then
         :

@@ -1,3 +1,15 @@
 probe-out/
 .agents/
+.claude/
 CLAUDE.md
+EXPECTATIONS.md
+expectations.md
+__pycache__/
+*.pyc
+*.pyo
+.cache/
+*.bak
+*.bak.*
+*.orig
+*~
+.DS_Store

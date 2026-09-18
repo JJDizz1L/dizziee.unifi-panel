@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -68,6 +69,15 @@ Panel {
   property bool initialized: false
   property bool refreshing: false
   property real lastUpdatedAt: 0
+  // Last-good fetch result on disk (see unifi-fetch UNIFI_CACHE_DIR): renders
+  // instantly at shell start while the first live poll runs. Written at most
+  // every 10 minutes on success — boot-gap coverage only needs a recent copy.
+  property double lastCacheWriteAt: 0
+  readonly property string lastGoodCachePath: {
+    var base = Quickshell.env("XDG_CACHE_HOME")
+    if (!base) base = Quickshell.env("HOME") + "/.cache"
+    return base + "/omarchy/unifi/last-good.json"
+  }
 
   // Notification bookkeeping, keyed by device id: what each device looked
   // like last poll, so only genuine transitions announce themselves.
@@ -688,6 +698,13 @@ Panel {
     if (parsed && parsed.clientsDetail && typeof parsed.clientsDetail.count === "number")
       clientsDetail = parsed.clientsDetail
     lastUpdatedAt = Date.now()
+    // Persist the raw fetch result (throttled): a restart or an unreachable
+    // controller then renders last-known data instead of a blank panel.
+    // Only reached with valid parsed output, so the text is never empty here.
+    if (Date.now() - lastCacheWriteAt > 600000) {
+      lastCacheWriteAt = Date.now()
+      try { lastGoodFile.setText(String(text || "")) } catch (e) {}
+    }
     recordRates()
 
     evaluateNotifications()
@@ -882,6 +899,21 @@ Panel {
     deviceProcess.running = true
   }
 
+  // Single write path for per-device detail, used by both the success and
+  // failure exits below.
+  function storeDeviceEntry(key, entry) {
+    // Fresh object: reassigning the same reference would not notify the
+    // bundle bindings reading this map. Capped at 5 entries, oldest
+    // evicted — detail is a 2-minute cache, not an archive.
+    var merged = Object.assign({}, deviceDetails, { [key]: entry })
+    var keys = Object.keys(merged)
+    if (keys.length > 5) {
+      keys.sort(function(a, b) { return (merged[a].at || 0) - (merged[b].at || 0) })
+      for (var d = 0; d < keys.length - 5; d++) delete merged[keys[d]]
+    }
+    deviceDetails = merged
+  }
+
   function applyDeviceOutput(id, text) {
     var key = String(id || "")
     var entry = { at: Date.now() }
@@ -897,9 +929,7 @@ Panel {
       entry.bundle = { detail: parsed.detail || null, stats: parsed.stats || null }
     else
       entry.error = "The UniFi helper returned something unreadable"
-    // A fresh object: reassigning the same reference would not notify the
-    // bundle bindings reading this map.
-    deviceDetails = Object.assign({}, deviceDetails, { [key]: entry })
+    root.storeDeviceEntry(key, entry)
   }
 
   // --- processes and timers ---------------------------------------------
@@ -926,6 +956,18 @@ Panel {
     }
   }
 
+  // Renders the last-good disk snapshot at startup; the triggeredOnStart
+  // poll overwrites it within seconds. First-ever run (no file) is silent,
+  // and the notification evaluators deliberately stay quiet on this first
+  // pass (no previous state to transition from).
+  FileView {
+    id: lastGoodFile
+    path: root.lastGoodCachePath
+    watchChanges: false
+    printErrors: false
+    onLoaded: root.applyOutput(text())
+  }
+
   Process {
     id: notifyProcess
     running: false
@@ -947,12 +989,10 @@ Panel {
         root.applyDeviceOutput(id, deviceStdout.text)
       } else {
         var detail = String(deviceStderr.text || "").replace(/\s+/g, " ").trim()
-        // Fresh object for the same notify reason as applyDeviceOutput.
-        root.deviceDetails = Object.assign({}, root.deviceDetails,
-          { [id]: { at: Date.now(),
-                    error: detail !== ""
-                      ? detail
-                      : "The UniFi helper exited with code " + exitCode } })
+        root.storeDeviceEntry(id, { at: Date.now(),
+          error: detail !== ""
+            ? detail
+            : "The UniFi helper exited with code " + exitCode })
       }
       // An expansion requested mid-fetch runs now that the process is free.
       if (root.devicePendingId !== "") {
@@ -973,8 +1013,10 @@ Panel {
 
   Timer {
     // Drives dataIsStale, independent of the poll timer so a wedged poll
-    // cannot also freeze the staleness check that reveals it.
-    interval: 10000
+    // cannot also freeze the staleness check that reveals it. Slower while
+    // closed: the bar badge only needs ~30s staleness granularity, and the
+    // live "Updated Xs ago" footer only exists while open.
+    interval: root.opened ? 10000 : 30000
     running: true
     repeat: true
     triggeredOnStart: true

@@ -349,7 +349,7 @@ Panel {
     var deltaSeconds = Date.now() / 1000 - epochSeconds
     if (deltaSeconds < 90) {
       var s = Math.max(1, Math.round(deltaSeconds))
-      return s + (s === 1 ? " second ago" : " seconds ago")
+      return s + (s === 1 ? " sec ago" : " secs ago")
     }
     if (deltaSeconds < 3600) return Math.round(deltaSeconds / 60) + " min ago"
     if (deltaSeconds < 86400) return Math.round(deltaSeconds / 3600) + " h ago"
@@ -1166,11 +1166,12 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    // Content-fit width: the widest natural row sets it, floored at the old
-    // fixed width and capped so one IPv6-heavy row cannot take the screen.
+    // Content-fit width: the widest natural row sets it, floored at 600 so
+    // client rows (name + signal/satisfaction/IP) fit without eliding, and
+    // capped so one IPv6-heavy row cannot take the screen.
     // Reads implicitWidth only (never a child's width), so this cannot loop
     // with the rows that size themselves from the panel width.
-    contentWidth: networkPanel.fittedContentWidth(Math.max(Style.space(400), column.implicitWidth), Style.space(640))
+    contentWidth: networkPanel.fittedContentWidth(Math.max(Style.space(600), column.implicitWidth), Style.space(640))
     contentHeight: networkPanel.fittedContentHeight(column.implicitHeight, root.panelMaxHeight)
 
       PanelKeyCatcher {
@@ -2380,7 +2381,7 @@ Panel {
             // hint stay put so the line never collapses to a lone word.
             if (root.refreshing) return "Refreshing…" + tail
             if (root.lastUpdatedAt <= 0) return ""
-            return "Updated " + root.formatAgo(root.lastUpdatedAt / 1000) + tail
+            return "Checked " + root.formatAgo(root.lastUpdatedAt / 1000) + tail
           }
           color: root.detailColor
           font.family: Style.font.family

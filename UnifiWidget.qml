@@ -1868,11 +1868,12 @@ Panel {
               required property var modelData
               width: parent.width
               spacing: Style.space(8)
+              clip: true
 
               Text {
                 textFormat: Text.PlainText
                 id: clientName
-                width: parent.width - clientDetail.implicitWidth - Style.space(8)
+                width: Math.max(0, parent.width - clientDetail.width - parent.spacing)
                 elide: Text.ElideRight
                 text: clientRow.modelData.name !== ""
                   ? clientRow.modelData.name : "Unnamed client"
@@ -1884,6 +1885,8 @@ Panel {
               Text {
                 textFormat: Text.PlainText
                 id: clientDetail
+                width: Math.min(implicitWidth, parent.width * 0.65)
+                elide: Text.ElideRight
                 text: {
                   var parts = [root.clientTypeLabel(clientRow.modelData.kind)]
                   if (clientRow.modelData.guest) parts.push("Guest")
@@ -2016,11 +2019,12 @@ Panel {
                 id: wifiRow
                 width: parent.width
                 spacing: Style.space(8)
+                clip: true
 
                 Text {
                   textFormat: Text.PlainText
                   id: wifiName
-                  width: parent.width - wifiDetail.implicitWidth - Style.space(8)
+                  width: Math.max(0, parent.width - wifiDetail.width - parent.spacing)
                   elide: Text.ElideRight
                   text: (wifiEntry.modelData.name !== "" ? wifiEntry.modelData.name : "Unnamed network")
                     + (wifiEntry.modelData.iot ? "  ·  IoT" : "")
@@ -2032,6 +2036,8 @@ Panel {
                 Text {
                   textFormat: Text.PlainText
                   id: wifiDetail
+                  width: Math.min(implicitWidth, parent.width * 0.6)
+                  elide: Text.ElideRight
                   text: {
                     if (!wifiEntry.modelData.enabled) return "Off"
                     var label = root.wifiSecurityLabel(wifiEntry.modelData.security)
@@ -2109,11 +2115,12 @@ Panel {
               required property var modelData
               width: parent.width
               spacing: Style.space(8)
+              clip: true
 
               Text {
                 textFormat: Text.PlainText
                 id: networkName
-                width: parent.width - networkDetail.implicitWidth - Style.space(8)
+                width: Math.max(0, parent.width - networkDetail.width - parent.spacing)
                 elide: Text.ElideRight
                 text: networkRow.modelData.name !== "" ? networkRow.modelData.name : "Unnamed network"
                 color: networkRow.modelData.enabled ? Color.popups.text : root.detailColor
@@ -2124,6 +2131,8 @@ Panel {
               Text {
                 textFormat: Text.PlainText
                 id: networkDetail
+                width: Math.min(implicitWidth, parent.width * 0.6)
+                elide: Text.ElideRight
                 text: root.networkDetailLabel(networkRow.modelData)
                 color: root.detailColor
                 font.family: Style.font.family
@@ -2180,11 +2189,12 @@ Panel {
               required property var modelData
               width: parent.width
               spacing: Style.space(8)
+              clip: true
 
               Text {
                 textFormat: Text.PlainText
                 id: vpnName
-                width: parent.width - vpnDetail.implicitWidth - Style.space(8)
+                width: Math.max(0, parent.width - vpnDetail.width - parent.spacing)
                 elide: Text.ElideRight
                 text: vpnRow.modelData.name
                 color: vpnRow.modelData.dimmed ? root.detailColor : Color.popups.text
@@ -2195,6 +2205,8 @@ Panel {
               Text {
                 textFormat: Text.PlainText
                 id: vpnDetail
+                width: Math.min(implicitWidth, parent.width * 0.6)
+                elide: Text.ElideRight
                 text: vpnRow.modelData.detail
                 color: root.detailColor
                 font.family: Style.font.family
@@ -2348,6 +2360,7 @@ Panel {
           textFormat: Text.PlainText
           width: parent.width
           visible: !root.settingsMode
+          elide: Text.ElideRight
           text: {
             // nowMs ticks every 10 s so the age counts live; without it the
             // line would freeze until the next poll.

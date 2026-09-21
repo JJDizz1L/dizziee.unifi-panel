@@ -50,16 +50,17 @@ Item {
         width: parent.width
         spacing: Style.space(2)
 
-        Row {
-          width: parent.width
-          spacing: Style.space(8)
+    Row {
+      width: parent.width
+      spacing: Style.space(8)
+      clip: true
 
-          Text {
+      Text {
 
-            textFormat: Text.PlainText
-            width: parent.width - stateText.implicitWidth - Style.space(8)
-            elide: Text.ElideRight
-            text: row.device.name
+        textFormat: Text.PlainText
+        width: Math.max(0, parent.width - stateText.width - parent.spacing)
+        elide: Text.ElideRight
+        text: row.device.name
             color: Color.popups.text
             font.family: Style.font.family
             font.pixelSize: Style.font.body
@@ -70,6 +71,8 @@ Item {
 
             textFormat: Text.PlainText
             id: stateText
+            width: Math.min(implicitWidth, parent.width * 0.5)
+            elide: Text.ElideRight
             text: row.host.stateLabel(row.device.state)
             color: row.host.bucketColor(row.device.bucket)
             font.family: Style.font.family
@@ -80,11 +83,12 @@ Item {
         Row {
           width: parent.width
           spacing: Style.space(8)
+          clip: true
 
           Text {
 
             textFormat: Text.PlainText
-            width: parent.width - clientText.implicitWidth - Style.space(8)
+            width: Math.max(0, parent.width - clientText.width - parent.spacing)
             elide: Text.ElideRight
             text: [row.device.model, row.device.ip,
                  row.device.clients > 0 ? row.device.clients + " clients" : ""]
@@ -98,6 +102,8 @@ Item {
 
             textFormat: Text.PlainText
             id: clientText
+            width: Math.min(implicitWidth, parent.width * 0.5)
+            elide: Text.ElideRight
           text: row.device.firmwareUpdatable ? "Update available" : ""
           // Actionable, so it takes the accent rather than dim detail text.
           color: row.device.firmwareUpdatable ? Color.accent : row.host.detailColor

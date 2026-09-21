@@ -303,6 +303,7 @@ Column {
       required property var modelData
       width: parent.width
       spacing: Style.space(8)
+      clip: true
 
       readonly property bool up: linkRow.modelData.up === true
       // A port that has never been up since the gateway booted is unused,
@@ -313,7 +314,7 @@ Column {
 
         textFormat: Text.PlainText
         id: linkDetail
-        width: parent.width - linkState.implicitWidth - Style.space(8)
+        width: Math.max(0, parent.width - linkState.width - parent.spacing)
         elide: Text.ElideRight
         text: {
           var l = linkRow.modelData
@@ -339,6 +340,8 @@ Column {
 
         textFormat: Text.PlainText
         id: linkState
+        width: Math.min(implicitWidth, parent.width * 0.4)
+        elide: Text.ElideRight
         text: linkRow.up ? "Online" : (linkRow.unused ? "Not connected" : "Down")
         color: linkRow.up ? Color.popups.text : (linkRow.unused ? stats.host.detailColor : Color.urgent)
         font.family: Style.font.family

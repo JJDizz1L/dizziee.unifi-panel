@@ -151,11 +151,12 @@ Column {
       required property var modelData
       width: parent.width
       spacing: Style.space(8)
+      clip: true
 
       Text {
         textFormat: Text.PlainText
         id: portName
-        width: parent.width - portDetail.implicitWidth - Style.space(8)
+        width: Math.max(0, parent.width - portDetail.width - parent.spacing)
         elide: Text.ElideRight
         text: {
           var name = portRow.modelData.idx !== null && portRow.modelData.idx !== undefined
@@ -171,6 +172,8 @@ Column {
       Text {
         textFormat: Text.PlainText
         id: portDetail
+        width: Math.min(implicitWidth, parent.width * 0.6)
+        elide: Text.ElideRight
         text: detail.portDetail(portRow.modelData)
         color: detail.host.detailColor
         font.family: Style.font.family
@@ -188,12 +191,13 @@ Column {
       required property var modelData
       width: parent.width
       spacing: Style.space(8)
+      clip: true
 
       Text {
         textFormat: Text.PlainText
         id: radioName
-        width: parent.width - radioInfo.implicitWidth - Style.space(8)
-          - (radioRetries.visible ? radioRetries.implicitWidth + Style.space(8) : 0)
+        width: Math.max(0, parent.width - radioInfo.width - parent.spacing
+          - (radioRetries.visible ? radioRetries.width + parent.spacing : 0))
         elide: Text.ElideRight
         text: {
           var freq = radioRow.modelData.frequencyGHz
@@ -207,6 +211,8 @@ Column {
       Text {
         textFormat: Text.PlainText
         id: radioInfo
+        width: Math.min(implicitWidth, parent.width * 0.55)
+        elide: Text.ElideRight
         text: detail.radioDetail(radioRow.modelData)
         color: detail.host.detailColor
         font.family: Style.font.family
@@ -217,6 +223,8 @@ Column {
         textFormat: Text.PlainText
         id: radioRetries
         visible: text !== ""
+        width: visible ? Math.min(implicitWidth, parent.width * 0.35) : 0
+        elide: Text.ElideRight
         text: {
           var retries = detail.retriesText(radioRow.modelData.frequencyGHz)
           return retries !== "" ? "·  " + retries : ""

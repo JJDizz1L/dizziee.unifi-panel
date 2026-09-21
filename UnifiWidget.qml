@@ -1166,7 +1166,11 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: networkPanel.fittedContentWidth(Style.space(400))
+    // Content-fit width: the widest natural row sets it, floored at the old
+    // fixed width and capped so one IPv6-heavy row cannot take the screen.
+    // Reads implicitWidth only (never a child's width), so this cannot loop
+    // with the rows that size themselves from the panel width.
+    contentWidth: networkPanel.fittedContentWidth(Math.max(Style.space(400), column.implicitWidth), Style.space(640))
     contentHeight: networkPanel.fittedContentHeight(column.implicitHeight, root.panelMaxHeight)
 
       PanelKeyCatcher {

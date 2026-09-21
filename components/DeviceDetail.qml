@@ -172,7 +172,10 @@ Column {
       Text {
         textFormat: Text.PlainText
         id: portDetail
-        width: Math.min(implicitWidth, parent.width * 0.6)
+        // First claim up to natural width, like the client rows: "Port N"
+        // is short, the state/speed detail is what needs the room.
+        width: Math.min(implicitWidth,
+          Math.max(0, parent.width - Style.space(80) - parent.spacing))
         elide: Text.ElideRight
         text: detail.portDetail(portRow.modelData)
         color: detail.host.detailColor
@@ -211,7 +214,9 @@ Column {
       Text {
         textFormat: Text.PlainText
         id: radioInfo
-        width: Math.min(implicitWidth, parent.width * 0.55)
+        width: Math.min(implicitWidth,
+          Math.max(0, parent.width - Style.space(80) - parent.spacing
+            - (radioRetries.visible ? radioRetries.width + parent.spacing : 0)))
         elide: Text.ElideRight
         text: detail.radioDetail(radioRow.modelData)
         color: detail.host.detailColor

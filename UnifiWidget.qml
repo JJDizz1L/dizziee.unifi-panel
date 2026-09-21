@@ -1889,7 +1889,11 @@ Panel {
               Text {
                 textFormat: Text.PlainText
                 id: clientDetail
-                width: Math.min(implicitWidth, parent.width * 0.65)
+                // First claim on the row up to its natural width: a short
+                // name must not starve a long detail (IPv6 tail). Only the
+                // name's floor is reserved; the name takes whatever remains.
+                width: Math.min(implicitWidth,
+                  Math.max(0, parent.width - Style.space(110) - parent.spacing))
                 elide: Text.ElideRight
                 text: {
                   var parts = [root.clientTypeLabel(clientRow.modelData.kind)]

@@ -139,6 +139,36 @@ def gateway_stats:
     }
   end;
 
+# The gateway's latest statistics from the classic device table, matched by
+# MAC, for when the Integration statistics/latest request could not run — a
+# gateway the controller reports without an id has no UUID to ask it with.
+# The table carries counters rather than current throughput, so live WAN
+# rates stay unknown and the graphs use the report history instead.
+def classic_stats($row):
+  if ($row // null) == null then null else
+    {
+      uptimeSec: as_number($row.uptime),
+      heartbeatAt: null,
+      cpuPct: as_number($row["system-stats"].cpu),
+      memPct: as_number($row["system-stats"].mem),
+      load1: as_number($row.sys_stats.loadavg_1),
+      load5: as_number($row.sys_stats.loadavg_5),
+      load15: as_number($row.sys_stats.loadavg_15),
+      rxBps: null,
+      txBps: null
+    }
+    | if ([.[]] | all(. == null)) then null else . end
+  end;
+
+# Integration statistics win; the classic row fills in only when that answer
+# is missing entirely or answered empty.
+def stats_with_fallback($stats; $row):
+  (classic_stats($row)) as $classic
+  | if $stats == null then $classic
+    elif $classic == null then $stats
+    elif ([$stats[]] | all(. == null)) then $classic
+    else $stats end;
+
 # Five-minute WAN buckets from the classic report API, turned into average
 # bits per second per bucket. Rows are per gateway (keyed by MAC in `gw`); the
 # caller's gateway is matched when the MAC is known, otherwise all rows count.
@@ -333,7 +363,8 @@ def clients_per_device:
     # The device table's public IPv6 wins over the health row's (which has
     # none); either way a missing address stays null and renders blank.
     gateway: (if $gateway == null then null
-              else {id: $gateway.id, name: $gateway.name, stats: $stats,
+              else {id: $gateway.id, name: $gateway.name, mac: $gateway.mac,
+                    stats: stats_with_fallback($stats; $gw_row),
                     history: report_history($gateway.mac),
                     wan: (if $wan == null then null
                           elif $wan_ipv6 != null then ($wan + {ipv6: $wan_ipv6})

@@ -143,7 +143,11 @@ class H(BaseHTTPRequestHandler):
         if p.endswith("/stat/device"):
             return self._send(200, {"data": [
                 {"mac": "aa:bb:cc:00:00:04", "lan_ip": "192.168.1.1",
-                 "wan1": {"ipv6": ["2001:db8::99", "fe80::1"]}}],
+                 "wan1": {"ipv6": ["2001:db8::99", "fe80::1"]},
+                 "system-stats": {"cpu": 6.2, "mem": 59.1},
+                 "sys_stats": {"loadavg_1": 1.14, "loadavg_5": 0.9,
+                               "loadavg_15": 0.7},
+                 "uptime": 441749}],
                 "totalCount": 1})
         if p.endswith("/stat/sta"):
             return self._send(200, {"data": [
@@ -155,11 +159,17 @@ class H(BaseHTTPRequestHandler):
         if "/devices/" in p and not p.endswith("/statistics/latest"):
             did = p.rsplit("/", 1)[-1]
             for d in fixture["devices"]:
-                if d["id"] == did:
+                if d.get("id") == did:
                     return self._send(200, d)
             return self._send(404, {"error": "no such device"})
         if p.endswith("/devices"):
             items = fixture["devices"]
+            if "noid" in mode:
+                # A controller that reports the gateway without an id
+                # (seen on a UCG Fiber): the row keeps everything but it.
+                items = [dict(d, **({"id": None} if "UCG" in (d.get("model") or "") else {}))
+                         for d in items]
+                items = [{k: v for k, v in d.items() if v is not None} for d in items]
             if mode == "endless":
                 # A plausible total that the served pages never reach.
                 return self._send(200, {"data": items, "totalCount": 70})
@@ -168,7 +178,7 @@ class H(BaseHTTPRequestHandler):
                 # them together do not.
                 fat = [dict(items[0], pad="x" * 15000) for _ in range(40)]
                 return self._send(200, {"data": fat, "totalCount": 75})
-            if mode == "manydevices":
+            if mode in ("manydevices", "noidmany"):
                 # A site past the device cap, with the gateway not
                 # surfacing until the third page of the hunt.
                 offset = int(parse_qs(urlparse(self.path).query).get("offset", ["0"])[0])
@@ -452,6 +462,47 @@ if jq -e '.error == null and (.site.keys | index("id")) != null
   ok "--dump reports redacted device shapes without identifiers"
 else
   fail "--dump reports redacted device shapes without identifiers" "${out:0:300}"
+fi
+stop_stub
+
+# A gateway the controller reports without an id: no Integration
+# statistics/latest can run for it, but the site-wide classic fetches still
+# do — WAN state, client totals and the classic load figures come through,
+# matched by MAC.
+start_stub "$good_sites" noid
+out=$("$PLUGIN_DIR/unifi-fetch" --clients)
+if jq -e '.error == null and .gateway.name == "Gateway"
+         and .gateway.id == ""
+         and .gateway.stats.cpuPct == 6.2
+         and .gateway.stats.memPct == 59.1
+         and .gateway.stats.load1 == 1.14
+         and .gateway.stats.uptimeSec == 441749
+         and .gateway.stats.rxBps == null
+         and .gateway.wan.ip == "203.0.113.7"
+         and .devices[0].name == "Gateway" and .devices[0].id == ""
+         and .summary.clients == 15' >/dev/null 2>&1 <<<"$out" \
+   && ! grep -q statistics "$work/requests" \
+   && grep -q 'stat/health' "$work/requests" \
+   && grep -q 'rest/networkconf' "$work/requests"; then
+  # (No assert on stat/device being requested: an earlier poll's hourly
+  # cache legitimately serves it. The cpuPct assert above proves the
+  # table's content was used either way.)
+  ok "an id-less gateway still gets classic WAN, clients and load figures"
+else
+  fail "an id-less gateway still gets classic WAN, clients and load figures" "${out:0:300}"
+fi
+stop_stub
+
+# Oversized site with an id-less gateway: the hunt matches by MAC instead.
+start_stub "$good_sites" noidmany
+out=$("$PLUGIN_DIR/unifi-fetch")
+if jq -e '.error == null and .oversized == true
+         and .gateway.name == "Gateway" and .gateway.id == ""
+         and .gateway.stats.cpuPct == 6.2
+         and .gateway.wan.ip == "203.0.113.7"' >/dev/null 2>&1 <<<"$out"; then
+  ok "the oversized hunt finds an id-less gateway by MAC"
+else
+  fail "the oversized hunt finds an id-less gateway by MAC" "${out:0:300}"
 fi
 stop_stub
 

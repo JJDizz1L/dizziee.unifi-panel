@@ -263,6 +263,31 @@ if jq -e '.gateway.stats.heartbeatAt == "2026-08-18T17:55:57Z"' >/dev/null 2>&1 
 else
   printf '  FAIL  keeps the heartbeat stamp the widget dedups samples on\n'; (( failed++ ))
 fi
+# A gateway the controller reports without an id still gets load figures
+# from the classic device table, matched by MAC (case-insensitively);
+# live WAN rates stay unknown and the graphs use the report history.
+classic_out=$(jq -f "$NORMALIZE" \
+  <<<'{"devices":[{"name":"UCG Fiber","model":"UCG Fiber","macAddress":"AA:BB:CC:DD:EE:FF","state":"ONLINE","features":["switching"]}],"statDevice":[{"mac":"aa:bb:cc:dd:ee:ff","lan_ip":"10.0.0.1","system-stats":{"cpu":35,"mem":68},"sys_stats":{"loadavg_1":2.8},"uptime":1344000}]}' 2>&1)
+if jq -e '.gateway.stats.cpuPct == 35 and .gateway.stats.memPct == 68
+         and .gateway.stats.load1 == 2.8 and .gateway.stats.uptimeSec == 1344000
+         and .gateway.stats.rxBps == null
+         and .devices[0].ip == "10.0.0.1"' \
+     >/dev/null 2>&1 <<<"$classic_out" \
+  && jq -f "$NORMALIZE" \
+    <<<'{"devices":[{"id":"g","model":"UDR7","state":"ONLINE"}],"statDevice":[{"mac":"zz","system-stats":{"cpu":99}}]}' |
+     jq -e '.gateway.stats == null' >/dev/null 2>&1; then
+  printf '  ok    classic device table fills gateway load figures when the id is missing\n'; (( passed++ ))
+else
+  printf '  FAIL  classic device table fills gateway load figures when the id is missing\n'; (( failed++ ))
+fi
+# Integration statistics win whenever they answer with real figures.
+if jq -f "$NORMALIZE" \
+    <<<'{"devices":[{"id":"g","model":"UDR7","state":"ONLINE"}],"stats":{"cpuUtilizationPct":6.2,"uplink":{"rxRateBps":100}},"statDevice":[{"mac":"","system-stats":{"cpu":99}}]}' |
+     jq -e '.gateway.stats.cpuPct == 6.2 and .gateway.stats.rxBps == 100' >/dev/null 2>&1; then
+  printf '  ok    Integration statistics win over the classic row when present\n'; (( passed++ ))
+else
+  printf '  FAIL  Integration statistics win over the classic row when present\n'; (( failed++ ))
+fi
 if jq -f "$NORMALIZE" <<<'{"devices":[{"id":"a","name":"AP","state":"ONLINE","features":["accessPoint"]}],"stats":{"uptimeSec":1}}' |
    jq -e '.gateway == null' >/dev/null 2>&1; then
   printf '  ok    no gateway means no gateway block, statistics or not\n'; (( passed++ ))

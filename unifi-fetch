@@ -144,7 +144,7 @@ fetch_all() { # path max-items
 # without a gateway, so a failure here ends the hunt, not the fetch.
 FOUND_GATEWAY='[]'
 find_gateway() { # devices-path
-  local offset=0 pages=0 items gw_id
+  local offset=0 pages=0 items gw_id gw_mac norm
   FOUND_GATEWAY='[]'
   while (( pages++ < MAX_SCAN_PAGES )); do
     unifi_http "$1?offset=$offset&limit=$PAGE_LIMIT" "$API_KEY"
@@ -152,13 +152,19 @@ find_gateway() { # devices-path
     jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY" || return 0
     items=$(jq -c '.data | length' <<<"$UNIFI_HTTP_BODY")
     (( items > 0 )) || return 0
-    gw_id=$(jq -c '{devices: .data}' <<<"$UNIFI_HTTP_BODY" |
-      jq -r -f "$NORMALIZE" 2>/dev/null | jq -r '.gateway.id // empty' 2>/dev/null)
-    if [[ -n $gw_id ]]; then
-      # normalize keeps the Integration UUID only (never the MAC), so the
-      # match does the same; unifi_is_token guards the id before it is used.
-      FOUND_GATEWAY=$(jq -c --arg id "$gw_id" \
-        '[.data[] | select((.id // "") == $id)][:1]' <<<"$UNIFI_HTTP_BODY")
+    norm=$(jq -c '{devices: .data}' <<<"$UNIFI_HTTP_BODY" |
+      jq -r -f "$NORMALIZE" 2>/dev/null | jq -r '.gateway.id // empty, .gateway.mac // empty' 2>/dev/null)
+    gw_id=$(head -n1 <<<"$norm")
+    gw_mac=$(tail -n1 <<<"$norm" | tr 'A-Z' 'a-z')
+    # The id is honored only as a vetted token; the MAC only in its
+    # coloned-hex shape. A gateway the controller reports without an id
+    # matches by MAC instead.
+    unifi_is_token "$gw_id" || gw_id=""
+    [[ $gw_mac =~ ^[0-9a-f]{2}(:[0-9a-f]{2}){5}$ ]] || gw_mac=""
+    if [[ -n $gw_id || -n $gw_mac ]]; then
+      FOUND_GATEWAY=$(jq -c --arg id "$gw_id" --arg mac "$gw_mac" \
+        '[.data[] | select((($id != "" and (.id // "") == $id)
+          or ($mac != "" and ((.macAddress // "") | tostring | ascii_downcase) == $mac)))][:1]' <<<"$UNIFI_HTTP_BODY")
       return 0
     fi
     (( offset += items ))
@@ -347,8 +353,11 @@ raw=$(jq -n --argjson site "$site" --argjson devices "$devices" \
 
 # The gateway's own statistics (WAN rates, load, uptime) are one more request,
 # for one device only, and are worth it: they are what the panel graphs. The
-# normalizer decides which device is the gateway, so ask it first. A failure
-# here is not fatal — the fleet still renders, just without the graph.
+# normalizer decides which device is the gateway, so ask it first. It needs
+# the gateway's Integration id; a gateway the controller reports without one
+# skips this and the normalizer falls back to the classic device table for
+# the load figures. A failure here is not fatal — the fleet still renders,
+# just without the graph.
 stats=null
 gateway_id=$(jq -r -f "$NORMALIZE" <<<"$raw" 2>/dev/null | jq -r '.gateway.id // empty' 2>/dev/null)
 unifi_is_token "$gateway_id" || gateway_id=""
@@ -373,20 +382,20 @@ unifi_is_token "$site_name" || site_name=""
 # on disk (see UNIFI_CACHE_DIR) and every poll in between reuses it.
 report=null
 report_cache="$UNIFI_CACHE_DIR/report-$site_id.json"
-if [[ -n $gateway_id ]]; then
+# The report is classic site-wide: it needs the site reference, not the
+# gateway id. The gateway's MAC picks its rows out in the normalizer.
+if [[ -n $site_name ]]; then
   if [[ -f $report_cache ]] && (( $(date +%s) - $(stat -c %Y "$report_cache") < 240 )); then
     report=$(cat "$report_cache")
   else
     now_ms=$(( $(date +%s) * 1000 ))
     body=$(jq -cn --argjson end "$now_ms" \
       '{attrs: ["time", "wan-rx_bytes", "wan-tx_bytes"], start: ($end - 12 * 3600 * 1000), end: $end}')
-    if [[ -n $site_name ]]; then
-      unifi_http_post "$(unifi_classic_base)/api/s/$site_name/stat/report/5minutes.gw" "$body" "$API_KEY"
-      if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
-        report=$(jq -c '.data' <<<"$UNIFI_HTTP_BODY")
-        # The cache dir is ours already; umask 077 keeps our files private.
-        mkdir -p "$UNIFI_CACHE_DIR" && printf '%s' "$report" >"$report_cache"
-      fi
+    unifi_http_post "$(unifi_classic_base)/api/s/$site_name/stat/report/5minutes.gw" "$body" "$API_KEY"
+    if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
+      report=$(jq -c '.data' <<<"$UNIFI_HTTP_BODY")
+      # The cache dir is ours already; umask 077 keeps our files private.
+      mkdir -p "$UNIFI_CACHE_DIR" && printf '%s' "$report" >"$report_cache"
     fi
   fi
 fi
@@ -405,12 +414,15 @@ wans=null
 health=null
 network_conf=null
 stat_device=null
-if [[ -n $gateway_id ]]; then
-  unifi_http "/sites/$site_id/wans" "$API_KEY"
-  if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
-    wans=$(jq -c '.data' <<<"$UNIFI_HTTP_BODY")
-  fi
-  if [[ -n $site_name ]]; then
+# /wans names the WAN links and is Integration site-wide, so it needs no
+# gateway id. The health, networkconf and device table below are classic,
+# addressed by the vetted site reference — a gateway the controller reports
+# without an id still gets them, matched by MAC in the normalizer.
+unifi_http "/sites/$site_id/wans" "$API_KEY"
+if [[ $UNIFI_HTTP_CODE == 200 ]] && jq -e '.data | type == "array"' >/dev/null 2>&1 <<<"$UNIFI_HTTP_BODY"; then
+  wans=$(jq -c '.data' <<<"$UNIFI_HTTP_BODY")
+fi
+if [[ -n $site_name ]]; then
     UNIFI_API_BASE_SAVED="$UNIFI_API_BASE"
     UNIFI_API_BASE="$(unifi_classic_base)"
     unifi_http "/api/s/$site_name/stat/health" "$API_KEY"
@@ -455,7 +467,6 @@ if [[ -n $gateway_id ]]; then
         stat_device=null
       fi
     fi
-  fi
 fi
 
 # Per-client radio health (signal strength, satisfaction) for the opt-in

@@ -135,6 +135,14 @@ unifi_config_safe() { # value...
 
 # curl's own exit status is appended after the http code: an oversized body
 # arrives with a perfectly good 200 and only curl (63) knows it was cut short.
+# With UNIFI_DEBUG=1 in the environment, every request logs its target and
+# HTTP code on stderr — a support aid for controllers that answer some
+# endpoints and not others. Off unless asked: the widget never sets it.
+unifi_debug_log() { # description
+  [[ ${UNIFI_DEBUG:-0} == 1 ]] || return 0
+  printf 'unifi: %s\n' "$1" >&2
+}
+
 unifi_run_curl() { # config
   local response status
   response=$(printf '%s\n' "$1" | curl --config - -m 20 --max-filesize "$UNIFI_MAX_BODY_BYTES" -w '\n%{http_code}' 2>&1
@@ -164,6 +172,7 @@ unifi_http() { # path-with-query api-key
     "$UNIFI_API_BASE" "$1" "$2")
   [[ $UNIFI_INSECURE == 1 ]] && config+=$'\ninsecure'
   unifi_run_curl "$config"
+  unifi_debug_log "GET $1 -> $UNIFI_HTTP_CODE"
 }
 
 # A POST with a JSON body to an absolute URL, same conventions as unifi_http.
@@ -178,6 +187,7 @@ unifi_http_post() { # url json-body api-key
     "$1" "$3" "$2")
   [[ $UNIFI_INSECURE == 1 ]] && config+=$'\ninsecure'
   unifi_run_curl "$config"
+  unifi_debug_log "POST $1 -> $UNIFI_HTTP_CODE"
 }
 
 # The classic Network API root that pairs with the Integration API base:

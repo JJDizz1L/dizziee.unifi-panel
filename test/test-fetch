@@ -425,6 +425,20 @@ else
 fi
 stop_stub
 
+# --debug logs each request's target and HTTP code on stderr while stdout
+# stays the normalized document.
+start_stub "$good_sites"
+out=$("$PLUGIN_DIR/unifi-fetch" --debug 2>"$work/stderr")
+if jq -e '.error == null' >/dev/null 2>&1 <<<"$out" \
+   && grep -q 'GET /sites?.*-> 200' "$work/stderr" \
+   && grep -q 'GET /info.*-> 200' "$work/stderr" \
+   && ! grep -q '^unifi:' <<<"$out"; then
+  ok "--debug logs request targets and codes on stderr, stdout stays clean"
+else
+  fail "--debug logs request targets and codes on stderr, stdout stays clean" "$(head -c 300 "$work/stderr")"
+fi
+stop_stub
+
 # The curl helpers themselves refuse config-breaking input, whatever the caller.
 # shellcheck source=lib/unifi-common.sh
 source "$PLUGIN_DIR/lib/unifi-common.sh"

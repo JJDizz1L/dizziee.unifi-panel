@@ -6,7 +6,10 @@
 # stores which site by id; the name and classic-API reference come from
 # /sites.
 #
-# Usage: unifi-fetch [--site=<id> --site-ref=<reference>] [--gateway=<id>] [--clients]
+# Usage: unifi-fetch [--site=<id> --site-ref=<reference>] [--gateway=<id>] [--clients] [--debug]
+#
+# --debug logs every request target and HTTP code on stderr; stdout stays
+# the normalized document, so the widget is unaffected.
 #
 # The widget hands back the site it learned from an earlier poll, so only
 # the first poll after a (re)start — or any run without the flags — asks
@@ -72,9 +75,11 @@ for arg in "$@"; do
     --site-ref=*) KNOWN_REF="${arg#--site-ref=}" ;;
     --gateway=*) KNOWN_GATEWAY="${arg#--gateway=}" ;;
     --clients) WANT_CLIENTS=1 ;;
-    *) die "unifi-fetch takes only --site=<id>, --site-ref=<reference>, --gateway=<id> and --clients" ;;
+    --debug) UNIFI_DEBUG=1 ;;
+    *) die "unifi-fetch takes only --site=<id>, --site-ref=<reference>, --gateway=<id>, --clients and --debug" ;;
   esac
 done
+export UNIFI_DEBUG="${UNIFI_DEBUG:-0}"
 
 unifi_load_config || die_needs_login "No UniFi controller configured"
 API_KEY="$(unifi_api_key)"

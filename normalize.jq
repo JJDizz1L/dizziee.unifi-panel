@@ -96,11 +96,12 @@ def bucket:
 # and gateway, but a UCG Fiber on Network 10.5 reports only "switching", so
 # the model name is the fallback tell for Ubiquiti's gateway lines (Dream
 # Machine, Cloud Gateway, Security Gateway, Express, …). A generation digit
-# can follow the prefix with no separator — a Dream Router 7 reports "UDR7" —
-# so a bare digit counts as a boundary too.
+# or letter can follow the prefix with no separator — a Dream Router 7
+# reports "UDR7", a UCG Fiber "UCGF" or "UDMA6A8" — so a bare alphanumeric
+# counts as a boundary too.
 def is_gateway:
   ((.features // []) | index("gateway")) != null
-  or ((.model // "") | test("^(UDM|UCG|UXG|USG|UDR|UDW|UX|EFG)([- ]|[0-9]|$)|Dream|Gateway|Fortress|Express"; "i"));
+  or ((.model // "") | test("^(UDM|UCG|UXG|USG|UDR|UDW|UX|EFG)([- ]|[0-9A-Z]|$)|Dream|Gateway|Fortress|Express|Fiber"; "i"));
 
 def kind:
   if is_gateway then "gateway"
@@ -285,8 +286,13 @@ def clients_per_device:
 | (public_ipv6((($gw_row.wan1.ipv6 // []) + ($gw_row.wan2.ipv6 // [])))) as $wan_ipv6
 | ((.devices // []) | map(
     (.state // "OFFLINE" | tostring) as $state
+    # The id is the Integration API's UUID only — never the MAC. A MAC
+    # contains colons, which unifi-device's token check rejects ("No usable
+    # device id was given"); a device without an id (a UCG Fiber the
+    # controller reports without one, say) keeps "" and its row never
+    # expands, instead of failing on click.
     | {
-        id: (.id // .macAddress // ""),
+        id: (.id // ""),
         name: display_name,
         model: (.model // ""),
         mac: (.macAddress // ""),
@@ -298,7 +304,7 @@ def clients_per_device:
         features: (.features // []),
         kind: kind,
         firmwareUpdatable: (.firmwareUpdatable // false),
-        clients: ($per_device[.id // .macAddress // ""] // 0)
+        clients: ($per_device[.id // ""] // 0)
       }
   ) | sort_by(sort_key)) as $devices
 | ($devices | map(select(.kind == "gateway")) | .[0] // null) as $gateway

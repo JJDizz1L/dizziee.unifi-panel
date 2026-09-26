@@ -145,10 +145,10 @@ find_gateway() { # devices-path
     gw_id=$(jq -c '{devices: .data}' <<<"$UNIFI_HTTP_BODY" |
       jq -r -f "$NORMALIZE" 2>/dev/null | jq -r '.gateway.id // empty' 2>/dev/null)
     if [[ -n $gw_id ]]; then
-      # normalize falls back to the MAC when a device has no id, so the
-      # match does the same.
+      # normalize keeps the Integration UUID only (never the MAC), so the
+      # match does the same; unifi_is_token guards the id before it is used.
       FOUND_GATEWAY=$(jq -c --arg id "$gw_id" \
-        '[.data[] | select((.id // .macAddress // "") == $id)][:1]' <<<"$UNIFI_HTTP_BODY")
+        '[.data[] | select((.id // "") == $id)][:1]' <<<"$UNIFI_HTTP_BODY")
       return 0
     fi
     (( offset += items ))

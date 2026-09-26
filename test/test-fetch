@@ -439,6 +439,22 @@ else
 fi
 stop_stub
 
+# --dump prints a redacted shape inventory: key names and presence flags,
+# never raw ids, MACs or IPs.
+start_stub "$good_sites"
+out=$("$PLUGIN_DIR/unifi-fetch" --dump)
+if jq -e '.error == null and (.site.keys | index("id")) != null
+         and (.devices | length) > 0
+         and (.devices[0] | has("idPresent") and has("keys"))
+         and .gateway.name == "Gateway" and .gateway.idPresent == true' \
+     >/dev/null 2>&1 <<<"$out" \
+   && ! grep -q -E 'aa:bb:cc|192\.168' <<<"$out"; then
+  ok "--dump reports redacted device shapes without identifiers"
+else
+  fail "--dump reports redacted device shapes without identifiers" "${out:0:300}"
+fi
+stop_stub
+
 # The curl helpers themselves refuse config-breaking input, whatever the caller.
 # shellcheck source=lib/unifi-common.sh
 source "$PLUGIN_DIR/lib/unifi-common.sh"

@@ -6,10 +6,13 @@
 # stores which site by id; the name and classic-API reference come from
 # /sites.
 #
-# Usage: unifi-fetch [--site=<id> --site-ref=<reference>] [--gateway=<id>] [--clients] [--debug]
+# Usage: unifi-fetch [--site=<id> --site-ref=<reference>] [--gateway=<id>] [--clients] [--debug] [--dump]
 #
 # --debug logs every request target and HTTP code on stderr; stdout stays
 # the normalized document, so the widget is unaffected.
+# --dump prints a redacted shape inventory instead of polling: site and
+# device key names plus presence flags, never ids, MACs, IPs or the API
+# key. Safe to paste into a bug report.
 #
 # The widget hands back the site it learned from an earlier poll, so only
 # the first poll after a (re)start — or any run without the flags — asks
@@ -69,6 +72,7 @@ KNOWN_SITE=""
 KNOWN_REF=""
 KNOWN_GATEWAY=""
 WANT_CLIENTS=0
+WANT_DUMP=0
 for arg in "$@"; do
   case "$arg" in
     --site=*) KNOWN_SITE="${arg#--site=}" ;;
@@ -76,7 +80,8 @@ for arg in "$@"; do
     --gateway=*) KNOWN_GATEWAY="${arg#--gateway=}" ;;
     --clients) WANT_CLIENTS=1 ;;
     --debug) UNIFI_DEBUG=1 ;;
-    *) die "unifi-fetch takes only --site=<id>, --site-ref=<reference>, --gateway=<id>, --clients and --debug" ;;
+    --dump) WANT_DUMP=1 ;;
+    *) die "unifi-fetch takes only --site=<id>, --site-ref=<reference>, --gateway=<id>, --clients, --debug and --dump" ;;
   esac
 done
 export UNIFI_DEBUG="${UNIFI_DEBUG:-0}"
@@ -286,6 +291,35 @@ if (( device_total > 0 )); then
     find_gateway "/sites/$site_id/devices"
     devices="$FOUND_GATEWAY"
   fi
+fi
+
+# Redacted shape inventory for bug reports: key names and presence flags
+# only — never ids, MACs, IPs or the API key. Exits before any enrichment,
+# so it answers in seconds with two small requests (sites, devices).
+if (( WANT_DUMP )); then
+  raw=$(jq -n --argjson site "$site" --argjson devices "$devices" \
+    --argjson total "$device_total" '{site: $site, devices: $devices, deviceTotal: $total}')
+  jq -f "$NORMALIZE" 2>/dev/null <<<"$raw" |
+    jq --argjson raw "$raw" '{
+      site: {
+        name: $raw.site.name,
+        keys: ($raw.site | keys),
+        refPresent: ((($raw.site.internalReference // "") | tostring) != "")
+      },
+      deviceTotal: (if $raw.deviceTotal > 0 then $raw.deviceTotal else ($raw.devices | length) end),
+      oversized: ($raw.deviceTotal > 0),
+      devices: ($raw.devices[:25] | map({
+        name: .name, model: .model, state: .state, features: (.features // []),
+        keys: (if type == "object" then keys else [] end),
+        idPresent: ((.id // null) != null),
+        underscoreIdPresent: ((._id // null) != null),
+        macPresent: ((.macAddress // null) != null)
+      })),
+      normalized: (.devices | map({name: .name, kind: .kind, idPresent: ((.id // "") != "")})),
+      gateway: (if .gateway == null then null
+                else {name: .gateway.name, idPresent: ((.gateway.id // "") != "")} end)
+    }' || die "Could not interpret the controller response"
+  exit 0
 fi
 
 # The connected-client list is opt-in (the widget passes --clients when its

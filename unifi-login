@@ -74,12 +74,13 @@ url="${url:-$default_url}"
 [[ $url == http://* || $url == https://* ]] || url="https://$url"
 url="${url%/}"
 
-# Consoles ship with a self-signed certificate, so allowing it is the default
-# on first setup; a re-run keeps whatever was chosen before.
+# Consoles often ship with a self-signed certificate. Accepting it turns off
+# verification of the server the API key is sent to, so it is opt-in: the
+# default is No, and a re-run keeps whatever was chosen before.
 if (( configured )); then
   default_insecure=$([[ $UNIFI_INSECURE == 1 ]] && echo Y || echo N)
 else
-  default_insecure=Y
+  default_insecure=N
 fi
 yn=$([[ $default_insecure == Y ]] && echo "Y/n" || echo "y/N")
 read -r -p "Allow a self-signed certificate (most consoles have one)? [$yn]: " answer

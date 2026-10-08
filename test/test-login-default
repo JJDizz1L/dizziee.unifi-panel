@@ -1,0 +1,71 @@
+#!/bin/bash
+
+# unifi-login must not default to accepting a self-signed certificate: the
+# API key would then be sent to a server that was never verified. The prompt
+# is asked right after the controller URL. This test drives the script from a
+# pseudo-terminal with an unreachable URL and stops at that prompt, so no
+# request is made and nothing is read from or written to the keyring.
+
+set -uo pipefail
+
+TEST_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_DIR="$(dirname -- "$TEST_DIR")"
+readonly LOGIN="$PLUGIN_DIR/unifi-login"
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+prompt=$(HOME="$tmp" XDG_STATE_HOME="$tmp/state" XDG_CACHE_HOME="$tmp/cache" \
+  UNIFI_LOGIN_PATH="$LOGIN" python3 - <<'PY'
+import os, pty, select, time
+
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp("bash", ["bash", os.environ["UNIFI_LOGIN_PATH"]])
+
+buf = b""
+def read_until(marker, timeout=10):
+    global buf
+    end = time.time() + timeout
+    while time.time() < end and marker not in buf:
+        r, _, _ = select.select([fd], [], [], 0.2)
+        if r:
+            try:
+                buf += os.read(fd, 4096)
+            except OSError:
+                break
+    return marker in buf
+
+if read_until(b"Controller URL"):
+    os.write(fd, b"https://127.0.0.1:9\n")
+    if read_until(b"self-signed certificate"):
+        time.sleep(0.2)
+        while True:
+            r, _, _ = select.select([fd], [], [], 0.2)
+            if not r:
+                break
+            try:
+                buf += os.read(fd, 4096)
+            except OSError:
+                break
+        for line in buf.decode(errors="replace").splitlines():
+            if "self-signed certificate" in line:
+                print(line.strip())
+                break
+try:
+    os.kill(pid, 9)
+except OSError:
+    pass
+PY
+)
+
+if [[ $prompt == *"[y/N]"* ]]; then
+  echo "  ok    self-signed certificate defaults to No"
+  echo
+  echo "1 passed, 0 failed"
+  exit 0
+fi
+echo "  FAIL  self-signed certificate defaults to No ($prompt)"
+echo
+echo "0 passed, 1 failed"
+exit 1

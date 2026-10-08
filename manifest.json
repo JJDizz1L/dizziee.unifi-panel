@@ -34,7 +34,7 @@
       "showVpn": true,
       "showClients": true,
       "refreshIntervalSec": 180,
-      "watch": true,
+      "watch": false,
       "watchIntervalSec": 120,
       "notifyOffline": false,
       "notifyOnline": false,
@@ -93,7 +93,7 @@
         "key": "watch",
         "type": "boolean",
         "label": "Keep polling in the background for the bar badge and notifications",
-        "defaultValue": true
+        "defaultValue": false
       },
       {
         "key": "watchIntervalSec",

@@ -87,6 +87,10 @@ fi
 link=$(find "$PLUGIN_DIR" -name .git -prune -o -type l -print -quit 2>/dev/null)
 if [[ -z $link ]]; then ok "contains no symlinks"; else bad "contains no symlinks: $link"; fi
 
+# Background polling is opt-in: the panel is on-demand unless watch is enabled.
+check "background watch is off by default (on-demand)" \
+  '(.barWidget.defaults.watch == false) and (.barWidget.schema[] | select(.key == "watch") | .defaultValue == false)'
+
 # Settings the shell renders must each carry a default, or the panel shows blanks.
 if jq -e '(.barWidget.schema? | type) == "array"' "$MANIFEST" >/dev/null 2>&1; then
   check "every schema entry has a key and a type" \

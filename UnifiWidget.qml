@@ -137,7 +137,7 @@ Panel {
   // the controller heartbeats every ~20 s, so most polls repeat the last
   // sample, but each is four small LAN requests (the report is cached).
   readonly property int refreshIntervalMs: intSetting("refreshIntervalSec", 180, 1, 300) * 1000
-  readonly property bool watchEnabled: boolSetting("watch", true)
+  readonly property bool watchEnabled: boolSetting("watch", false)
   readonly property int watchIntervalMs: intSetting("watchIntervalSec", 120, 30, 3600) * 1000
   readonly property bool notifyOffline: boolSetting("notifyOffline", false)
   readonly property bool notifyOnline: boolSetting("notifyOnline", false)
@@ -1013,11 +1013,10 @@ Panel {
 
   Timer {
     // Drives dataIsStale, independent of the poll timer so a wedged poll
-    // cannot also freeze the staleness check that reveals it. Slower while
-    // closed: the bar badge only needs ~30s staleness granularity, and the
-    // live "Updated Xs ago" footer only exists while open.
+    // cannot also freeze the staleness check that reveals it. Runs only while
+    // the panel is open or background watch keeps the bar badge current.
     interval: root.opened ? 10000 : 30000
-    running: true
+    running: root.opened || root.watchEnabled
     repeat: true
     triggeredOnStart: true
     onTriggered: root.nowMs = Date.now()

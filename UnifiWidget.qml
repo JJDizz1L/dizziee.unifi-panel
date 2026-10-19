@@ -1819,7 +1819,7 @@ Panel {
           }
 
           Repeater {
-            model: root.clientsDetail && root.clientsDetail.vpnClients
+            model: root.opened && root.clientsDetail && root.clientsDetail.vpnClients
               ? root.clientsDetail.vpnClients.slice(0, 5) : []
 
             Row {
@@ -1864,7 +1864,7 @@ Panel {
           // Every connected client, capped so a large fleet cannot push the
           // panel out of view; the header line carries the full count.
           Repeater {
-            model: root.clientsDetail && root.clientsDetail.list
+            model: root.opened && root.clientsDetail && root.clientsDetail.list
               ? root.clientsDetail.list.slice(0, 25) : []
 
             Row {
@@ -1954,7 +1954,7 @@ Panel {
           }
 
           Repeater {
-            model: root.pending && root.pending.devices
+            model: root.opened && root.pending && root.pending.devices
               ? root.pending.devices.slice(0, 5) : []
 
             Text {
@@ -2012,7 +2012,7 @@ Panel {
           }
 
           Repeater {
-            model: root.wifi && root.wifi.networks
+            model: root.opened && root.wifi && root.wifi.networks
               ? root.wifi.networks.slice(0, 8) : []
 
             // One SSID: name and security with its bands, then the actual
@@ -2115,7 +2115,7 @@ Panel {
           }
 
           Repeater {
-            model: root.networks && root.networks.networks
+            model: root.opened && root.networks && root.networks.networks
               ? root.networks.networks.slice(0, 8) : []
 
             Row {
@@ -2190,7 +2190,7 @@ Panel {
           }
 
           Repeater {
-            model: root.vpnRows.slice(0, 8)
+            model: root.opened ? root.vpnRows.slice(0, 8) : []
 
             Row {
               id: vpnRow
@@ -2265,7 +2265,7 @@ Panel {
             && !root.settingsMode
 
           Repeater {
-            model: root.gatewayDevices
+            model: root.opened ? root.gatewayDevices : []
 
             DeviceRow {
               id: gatewayEntry
@@ -2340,7 +2340,7 @@ Panel {
 
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-          model: root.deviceTabDevices
+          model: root.opened ? root.deviceTabDevices : []
 
           delegate: DeviceRow {
             id: deviceEntry

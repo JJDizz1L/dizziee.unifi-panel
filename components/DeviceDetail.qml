@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Expanded detail under a device row: load figures, switch ports and AP
@@ -119,7 +120,7 @@ Column {
     wrapMode: Text.WordWrap
     visible: detail.loadError !== "" && !detail.bundle
     text: detail.loadError
-    color: Color.urgent
+    color: Commons.Color.urgent
     font.family: Style.font.family
     font.pixelSize: Style.font.caption
   }
@@ -164,7 +165,7 @@ Column {
           var connector = detail.connectorLabel(portRow.modelData.connector)
           return connector !== "" ? name + "  ·  " + connector : name
         }
-        color: Color.popups.text
+        color: Commons.Color.popups.text
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
       }
@@ -206,7 +207,7 @@ Column {
           var freq = radioRow.modelData.frequencyGHz
           return (freq !== null && freq !== undefined && isFinite(freq)) ? freq + " GHz" : "Radio"
         }
-        color: Color.popups.text
+        color: Commons.Color.popups.text
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
       }
@@ -237,7 +238,7 @@ Column {
         color: {
           var rate = detail.retriesFor(radioRow.modelData.frequencyGHz)
           return (rate !== null && rate !== undefined && rate >= detail.retryAlarmPct)
-            ? Color.urgent : detail.host.detailColor
+            ? Commons.Color.urgent : detail.host.detailColor
         }
         font.family: Style.font.family
         font.pixelSize: Style.font.caption

@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // The gateway's vital signs under its row: WAN download and upload right now,
@@ -67,9 +68,9 @@ Column {
   // has no hue to rotate, so upload keeps the default accent there — the two
   // graphs are still separate boxes with their own headers, and borrowing
   // the urgent colour would read as an alarm.
-  readonly property color downColor: Color.accent
+  readonly property color downColor: Commons.Color.accent
   readonly property color upColor: {
-    var a = Color.accent
+    var a = Commons.Color.accent
     if (a.hslSaturation < 0.2) return a
     return Qt.hsla((a.hslHue + 0.5) % 1, a.hslSaturation, a.hslLightness, 1)
   }
@@ -150,7 +151,7 @@ Column {
 
       readonly property color lineColor: rate.tint
       readonly property color fillColor: Qt.rgba(rate.tint.r, rate.tint.g, rate.tint.b, 0.22)
-      readonly property color axisColor: Qt.rgba(Color.popups.text.r, Color.popups.text.g, Color.popups.text.b, 0.15)
+      readonly property color axisColor: Qt.rgba(Commons.Color.popups.text.r, Commons.Color.popups.text.g, Commons.Color.popups.text.b, 0.15)
 
       onWidthChanged: requestPaint()
       onLineColorChanged: requestPaint()
@@ -242,7 +243,7 @@ Column {
       if (w.netmask) addr += "  ·  " + w.netmask
       return "IPv4  " + addr
     }
-    color: Color.popups.text
+    color: Commons.Color.popups.text
     font.family: Style.font.family
     font.pixelSize: Style.font.caption
   }
@@ -253,7 +254,7 @@ Column {
     visible: stats.showWan && stats.wan !== null && stats.wan !== undefined
     elide: Text.ElideRight
     text: "IPv6  " + ((stats.wan && stats.wan.ipv6) ? stats.wan.ipv6 : "—")
-    color: Color.popups.text
+    color: Commons.Color.popups.text
     font.family: Style.font.family
     font.pixelSize: Style.font.caption
   }
@@ -343,7 +344,7 @@ Column {
         width: Math.min(implicitWidth, parent.width * 0.4)
         elide: Text.ElideRight
         text: linkRow.up ? "Online" : (linkRow.unused ? "Not connected" : "Down")
-        color: linkRow.up ? Color.popups.text : (linkRow.unused ? stats.host.detailColor : Color.urgent)
+        color: linkRow.up ? Commons.Color.popups.text : (linkRow.unused ? stats.host.detailColor : Commons.Color.urgent)
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
       }

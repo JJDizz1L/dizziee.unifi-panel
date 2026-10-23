@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // One UniFi device in the list: name and state, model and address,
@@ -61,7 +62,7 @@ Item {
         width: Math.max(0, parent.width - stateText.width - parent.spacing)
         elide: Text.ElideRight
         text: row.device.name
-            color: Color.popups.text
+            color: Commons.Color.popups.text
             font.family: Style.font.family
             font.pixelSize: Style.font.body
             font.bold: true
@@ -106,7 +107,7 @@ Item {
             elide: Text.ElideRight
           text: row.device.firmwareUpdatable ? "Update available" : ""
           // Actionable, so it takes the accent rather than dim detail text.
-          color: row.device.firmwareUpdatable ? Color.accent : row.host.detailColor
+          color: row.device.firmwareUpdatable ? Commons.Color.accent : row.host.detailColor
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
           }
@@ -156,7 +157,7 @@ Item {
     PanelSeparator {
       visible: row.gatewayStats !== null || row.expanded
       width: parent.width
-      foreground: Color.popups.text
+      foreground: Commons.Color.popups.text
     }
   }
 

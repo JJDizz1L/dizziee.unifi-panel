@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Shapes
 import qs.Commons
+import qs.Commons as Commons
 
 // The Ubiquiti "U" mark, drawn as a vector path so it takes the bar's own
 // foreground colour like a font glyph would. The path is the 24×24 outline
@@ -9,7 +10,7 @@ Item {
   id: root
 
   property real iconSize: Style.font.icon
-  property color color: Color.foreground
+  property color color: Commons.Color.foreground
 
   width: iconSize
   height: iconSize

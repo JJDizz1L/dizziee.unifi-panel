@@ -5,6 +5,7 @@ import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "./components"
 
@@ -197,7 +198,8 @@ Panel {
       showVpn: boolOf("showVpn", true),
       showClients: boolOf("showClients", true),
       refreshIntervalSec: intOf("refreshIntervalSec", 180, 1, 300),
-      watch: boolOf("watch", true),
+      // Match the manifest and boolSetting(): background polling is opt-in.
+      watch: boolOf("watch", false),
       watchIntervalSec: intOf("watchIntervalSec", 120, 30, 3600),
       notifyOffline: boolOf("notifyOffline", false),
       notifyOnline: boolOf("notifyOnline", false),
@@ -294,15 +296,15 @@ Panel {
 
   // Qt.resolvedUrl yields a file:// URL; Process wants a plain path.
   readonly property string backendPath:
-    Qt.resolvedUrl("unifi-fetch").toString().replace(/^file:\/\//, "")
+    decodeURIComponent(Qt.resolvedUrl("unifi-fetch").toString().replace(/^file:\/\//, ""))
 
   readonly property string loginPath:
-    Qt.resolvedUrl("unifi-login").toString().replace(/^file:\/\//, "")
+    decodeURIComponent(Qt.resolvedUrl("unifi-login").toString().replace(/^file:\/\//, ""))
 
   // Detail loads when a row expands, not on every poll: one small request
   // per expansion, answered from a two-minute cache while it stays fresh.
   readonly property string devicePath:
-    Qt.resolvedUrl("unifi-device").toString().replace(/^file:\/\//, "")
+    decodeURIComponent(Qt.resolvedUrl("unifi-device").toString().replace(/^file:\/\//, ""))
   readonly property int deviceCacheMs: 120000
 
   // The bar shows the Ubiquiti mark (components/UbiquitiIcon.qml) rather than
@@ -333,13 +335,13 @@ Panel {
   // free to set it near the background — so dim the readable popup foreground
   // instead. 0.75 keeps caption-sized text above 4.5:1 on a dark panel.
   readonly property color detailColor:
-    Qt.rgba(Color.popups.text.r, Color.popups.text.g, Color.popups.text.b, 0.75)
+    Qt.rgba(Commons.Color.popups.text.r, Commons.Color.popups.text.g, Commons.Color.popups.text.b, 0.75)
 
   function bucketColor(bucket) {
     switch (bucket) {
-      case "offline": return Color.urgent
-      case "busy": return Color.accent
-      case "online": return Color.popups.text
+      case "offline": return Commons.Color.urgent
+      case "busy": return Commons.Color.accent
+      case "online": return Commons.Color.popups.text
       default: return detailColor
     }
   }
@@ -373,7 +375,10 @@ Panel {
   // than three polls it says nothing rather than something wrong.
   readonly property bool dataIsStale: {
     if (lastUpdatedAt <= 0) return true
-    return (nowMs - lastUpdatedAt) > Math.max(pollIntervalMs * 3, 30000)
+    // nowMs is 0 until the timer first ticks; a closed widget with watch off
+    // never ticks, so use the wall clock for the initial evaluation too.
+    var now = nowMs > 0 ? nowMs : Date.now()
+    return (now - lastUpdatedAt) > Math.max(pollIntervalMs * 3, 30000)
   }
 
   // BarIconButton pins its width to one slot, so this must stay glyph-short.
@@ -650,7 +655,7 @@ Panel {
     fetchProcess.running = true
   }
 
-  function applyOutput(text) {
+  function applyOutput(text, cachedAt) {
     refreshing = false
     initialized = true
 
@@ -697,13 +702,18 @@ Panel {
       vpn = parsed.vpn
     if (parsed && parsed.clientsDetail && typeof parsed.clientsDetail.count === "number")
       clientsDetail = parsed.clientsDetail
-    lastUpdatedAt = Date.now()
+    // A cached document carries the time it was fetched. Keeping that stamp
+    // means a shell restarted days later reports stale data as stale instead
+    // of passing it off as a fresh poll.
+    lastUpdatedAt = (cachedAt && cachedAt > 0) ? cachedAt : Date.now()
     // Persist the raw fetch result (throttled): a restart or an unreachable
     // controller then renders last-known data instead of a blank panel.
     // Only reached with valid parsed output, so the text is never empty here.
     if (Date.now() - lastCacheWriteAt > 600000) {
       lastCacheWriteAt = Date.now()
-      try { lastGoodFile.setText(String(text || "")) } catch (e) {}
+      try {
+        lastGoodFile.setText(JSON.stringify({ at: Date.now(), data: String(text || "") }))
+      } catch (e) {}
     }
     recordRates()
 
@@ -965,7 +975,21 @@ Panel {
     path: root.lastGoodCachePath
     watchChanges: false
     printErrors: false
-    onLoaded: root.applyOutput(text())
+    onLoaded: {
+      var raw = String(text() || "")
+      var cachedAt = 0
+      try {
+        var cached = JSON.parse(raw)
+        if (cached && typeof cached.at === "number" && typeof cached.data === "string") {
+          cachedAt = cached.at
+          raw = cached.data
+        }
+      } catch (e) {}
+      // Do not immediately rewrite the document we just loaded; that would
+      // refresh its mtime and erase the age it is meant to report.
+      root.lastCacheWriteAt = Date.now()
+      root.applyOutput(raw, cachedAt)
+    }
   }
 
   Process {
@@ -1116,7 +1140,7 @@ Panel {
     // Not being set up yet is dimmed, not urgent: nothing is wrong with the
     // network, the plugin just has nothing to say.
     active: root.summary.offline > 0 || (root.lastError !== "" && !root.needsLogin)
-    activeColor: Color.urgent
+    activeColor: Commons.Color.urgent
     tooltipText: root.tooltipSummary
     slotSize: Style.bar.statusSlot
 
@@ -1132,9 +1156,9 @@ Panel {
       height: badgeLabel.implicitHeight + Style.spaceReal(1)
       width: Math.max(height, badgeLabel.implicitWidth + Style.spaceReal(3))
       radius: height / 2
-      color: Color.urgent
+      color: Commons.Color.urgent
       border.width: 1
-      border.color: Color.bar.background
+      border.color: Commons.Color.bar.background
 
       Text {
 
@@ -1142,7 +1166,7 @@ Panel {
         id: badgeLabel
         anchors.centerIn: parent
         text: String(root.summary.offline)
-        color: Color.bar.background
+        color: Commons.Color.bar.background
         font.family: Style.font.family
         font.pixelSize: Math.max(7, Math.round(Style.font.caption * 0.78))
         font.bold: true
@@ -1271,7 +1295,7 @@ Panel {
               // offline or the poll fails, dimmed before sign-in.
               color: root.needsLogin ? root.detailColor
                 : (root.summary.offline > 0 || (root.lastError !== "" && !root.needsLogin)
-                   ? Color.urgent : Color.accent)
+                   ? Commons.Color.urgent : Commons.Color.accent)
             }
           }
 
@@ -1288,7 +1312,7 @@ Panel {
               textFormat: Text.PlainText
               width: parent.width
               text: root.settingsMode ? "UniFi Settings" : "UniFi Panel"
-              color: Color.popups.text
+              color: Commons.Color.popups.text
               font.family: Style.font.family
               font.pixelSize: Style.font.title
               font.bold: true
@@ -1316,7 +1340,7 @@ Panel {
               visible: !root.settingsMode
               iconText: "\uF013"
               tooltipText: "Settings"
-              foreground: Color.popups.text
+              foreground: Commons.Color.popups.text
               onClicked: root.openSettings()
             }
 
@@ -1371,7 +1395,7 @@ Panel {
                   textFormat: Text.PlainText
                   anchors.top: parent.top
                   text: settingsTabItem.modelData.label
-                  color: root.settingsTab === settingsTabItem.modelData.key ? Color.popups.text : root.detailColor
+                  color: root.settingsTab === settingsTabItem.modelData.key ? Commons.Color.popups.text : root.detailColor
                   font.family: Style.font.family
                   font.pixelSize: Style.font.caption
                   font.bold: root.settingsTab === settingsTabItem.modelData.key
@@ -1384,7 +1408,7 @@ Panel {
                   height: 2
                   radius: 1
                   visible: root.settingsTab === settingsTabItem.modelData.key
-                  color: Color.accent
+                  color: Commons.Color.accent
                 }
 
                 MouseArea {
@@ -1408,7 +1432,7 @@ Panel {
             width: parent.width
             label: "Client count on the bar icon"
             checked: root.draftValue("showBarClients", false) === true
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
             onClicked: root.setDraftValue("showBarClients", root.draftValue("showBarClients", false) !== true)
           }
@@ -1417,7 +1441,7 @@ Panel {
             width: parent.width
             label: "Gateway graphs and health"
             checked: root.draftValue("showGatewayStats", true) === true
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
             onClicked: root.setDraftValue("showGatewayStats", root.draftValue("showGatewayStats", true) !== true)
           }
@@ -1426,7 +1450,7 @@ Panel {
             width: parent.width
             label: "WiFi tab"
             checked: root.draftValue("showWifi", true) === true
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
             onClicked: root.setDraftValue("showWifi", root.draftValue("showWifi", true) !== true)
           }
@@ -1435,7 +1459,7 @@ Panel {
             width: parent.width
             label: "Networks tab"
             checked: root.draftValue("showNetworks", true) === true
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
             onClicked: root.setDraftValue("showNetworks", root.draftValue("showNetworks", true) !== true)
           }
@@ -1444,7 +1468,7 @@ Panel {
             width: parent.width
             label: "VPN tab"
             checked: root.draftValue("showVpn", true) === true
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
             onClicked: root.setDraftValue("showVpn", root.draftValue("showVpn", true) !== true)
           }
@@ -1453,7 +1477,7 @@ Panel {
             width: parent.width
             label: "Client list with signal"
             checked: root.draftValue("showClients", true) === true
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
             onClicked: root.setDraftValue("showClients", root.draftValue("showClients", true) !== true)
           }
@@ -1473,7 +1497,7 @@ Panel {
             to: 300
             stepSize: 30
             fieldWidth: parent.width
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
             onModified: function(value) { root.setDraftValue("refreshIntervalSec", value) }
           }
@@ -1481,10 +1505,10 @@ Panel {
           Toggle {
             width: parent.width
             label: "Background polling"
-            checked: root.draftValue("watch", true) === true
-            foreground: Color.popups.text
+            checked: root.draftValue("watch", false) === true
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
-            onClicked: root.setDraftValue("watch", root.draftValue("watch", true) !== true)
+            onClicked: root.setDraftValue("watch", root.draftValue("watch", false) !== true)
           }
 
           NumberField {
@@ -1495,7 +1519,7 @@ Panel {
             to: 3600
             stepSize: 30
             fieldWidth: parent.width
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
             onModified: function(value) { root.setDraftValue("watchIntervalSec", value) }
           }
@@ -1511,7 +1535,7 @@ Panel {
             width: parent.width
             label: "Device goes offline"
             checked: root.draftValue("notifyOffline", false) === true
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
             onClicked: root.setDraftValue("notifyOffline", root.draftValue("notifyOffline", false) !== true)
           }
@@ -1520,7 +1544,7 @@ Panel {
             width: parent.width
             label: "Device back online"
             checked: root.draftValue("notifyOnline", false) === true
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
             onClicked: root.setDraftValue("notifyOnline", root.draftValue("notifyOnline", false) !== true)
           }
@@ -1529,7 +1553,7 @@ Panel {
             width: parent.width
             label: "WAN link down or recovered"
             checked: root.draftValue("notifyWan", true) === true
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
             onClicked: root.setDraftValue("notifyWan", root.draftValue("notifyWan", true) !== true)
           }
@@ -1538,7 +1562,7 @@ Panel {
             width: parent.width
             label: "Device waiting for adoption"
             checked: root.draftValue("notifyPending", true) === true
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
             onClicked: root.setDraftValue("notifyPending", root.draftValue("notifyPending", true) !== true)
           }
@@ -1547,7 +1571,7 @@ Panel {
             width: parent.width
             label: "Firmware update available"
             checked: root.draftValue("notifyFirmware", true) === true
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
             onClicked: root.setDraftValue("notifyFirmware", root.draftValue("notifyFirmware", true) !== true)
           }
@@ -1560,7 +1584,7 @@ Panel {
             to: 240
             stepSize: 5
             fieldWidth: parent.width
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
             onModified: function(value) { root.setDraftValue("notifyCooldownMin", value) }
           }
@@ -1572,7 +1596,7 @@ Panel {
             visible: root.settingsStatusText !== ""
             horizontalAlignment: Text.AlignHCenter
             text: root.settingsStatusText
-            color: Color.accent
+            color: Commons.Color.accent
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
           }
@@ -1601,7 +1625,7 @@ Panel {
             width: parent.width
             wrapMode: Text.WordWrap
             text: root.lastError !== "" ? root.lastError : "No UniFi controller configured."
-            color: Color.urgent
+            color: Commons.Color.urgent
             font.family: Style.font.family
             font.pixelSize: Style.font.body
           }
@@ -1644,7 +1668,7 @@ Panel {
           wrapMode: Text.WordWrap
           visible: !root.needsLogin && root.lastError !== "" && !root.settingsMode
           text: root.lastError
-          color: Color.urgent
+          color: Commons.Color.urgent
           font.family: Style.font.family
           font.pixelSize: Style.font.body
         }
@@ -1672,7 +1696,7 @@ Panel {
             text: root.summary.offline > 0
               ? root.summary.offline + " offline"
               : root.summary.online + "/" + root.summary.devices + " online"
-            color: root.summary.offline > 0 ? Color.urgent : Color.popups.text
+            color: root.summary.offline > 0 ? Commons.Color.urgent : Commons.Color.popups.text
             tabKey: "DEVICES"
           }
 
@@ -1689,7 +1713,7 @@ Panel {
               ? root.clientsDetail.count + (root.clientsDetail.count === 1 ? " client" : " clients")
               : (root.summary.clients !== null && root.summary.clients !== undefined
                  ? root.summary.clients + " clients" : "Clients")
-            color: Color.popups.text
+            color: Commons.Color.popups.text
             tabKey: "CLIENTS"
           }
 
@@ -1703,7 +1727,7 @@ Panel {
 
           WatchSegment {
             text: root.wanWatch.label
-            color: root.wanWatch.alarm ? Color.urgent : Color.popups.text
+            color: root.wanWatch.alarm ? Commons.Color.urgent : Commons.Color.popups.text
             tabKey: "OVERVIEW"
           }
         }
@@ -1729,7 +1753,7 @@ Panel {
                 textFormat: Text.PlainText
                 anchors.top: parent.top
                 text: tabItem.modelData.label
-                color: root.activeTab === tabItem.modelData.key ? Color.popups.text : root.detailColor
+                color: root.activeTab === tabItem.modelData.key ? Commons.Color.popups.text : root.detailColor
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
                 font.bold: root.activeTab === tabItem.modelData.key
@@ -1742,7 +1766,7 @@ Panel {
                 height: 2
                 radius: 1
                 visible: root.activeTab === tabItem.modelData.key
-                color: Color.accent
+                color: Commons.Color.accent
               }
 
               MouseArea {
@@ -1881,7 +1905,7 @@ Panel {
                 elide: Text.ElideRight
                 text: clientRow.modelData.name !== ""
                   ? clientRow.modelData.name : "Unnamed client"
-                color: Color.popups.text
+                color: Commons.Color.popups.text
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
               }
@@ -1948,7 +1972,7 @@ Panel {
             textFormat: Text.PlainText
             width: parent.width
             text: root.pendingSummary
-            color: Color.accent
+            color: Commons.Color.accent
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
           }
@@ -2036,7 +2060,7 @@ Panel {
                   elide: Text.ElideRight
                   text: (wifiEntry.modelData.name !== "" ? wifiEntry.modelData.name : "Unnamed network")
                     + (wifiEntry.modelData.iot ? "  ·  IoT" : "")
-                  color: wifiEntry.modelData.enabled ? Color.popups.text : root.detailColor
+                  color: wifiEntry.modelData.enabled ? Commons.Color.popups.text : root.detailColor
                   font.family: Style.font.family
                   font.pixelSize: Style.font.caption
                 }
@@ -2056,7 +2080,7 @@ Panel {
                   // theme's urgent token, never a hardcoded red.
                   color: !wifiEntry.modelData.enabled
                     ? root.detailColor
-                    : (wifiEntry.modelData.security === "OPEN" ? Color.urgent : root.detailColor)
+                    : (wifiEntry.modelData.security === "OPEN" ? Commons.Color.urgent : root.detailColor)
                   font.family: Style.font.family
                   font.pixelSize: Style.font.caption
                 }
@@ -2131,7 +2155,7 @@ Panel {
                 width: Math.max(0, parent.width - networkDetail.width - parent.spacing)
                 elide: Text.ElideRight
                 text: networkRow.modelData.name !== "" ? networkRow.modelData.name : "Unnamed network"
-                color: networkRow.modelData.enabled ? Color.popups.text : root.detailColor
+                color: networkRow.modelData.enabled ? Commons.Color.popups.text : root.detailColor
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
               }
@@ -2205,7 +2229,7 @@ Panel {
                 width: Math.max(0, parent.width - vpnDetail.width - parent.spacing)
                 elide: Text.ElideRight
                 text: vpnRow.modelData.name
-                color: vpnRow.modelData.dimmed ? root.detailColor : Color.popups.text
+                color: vpnRow.modelData.dimmed ? root.detailColor : Commons.Color.popups.text
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
               }
@@ -2303,7 +2327,7 @@ Panel {
             width: parent.width
             wrapMode: Text.WordWrap
             text: root.summary.devices + " devices — more than this widget lists."
-            color: Color.popups.text
+            color: Commons.Color.popups.text
             font.family: Style.font.family
             font.pixelSize: Style.font.body
           }

@@ -47,9 +47,15 @@ Panel {
   // site reference the console root still gets the user there.
   readonly property string deviceListUrl: {
     if (!controllerInfo || !controllerInfo.url) return ""
-    return site && site.ref
-      ? controllerInfo.url + "/network/" + site.ref + "/devices"
-      : controllerInfo.url
+    var base = String(controllerInfo.url).replace(/\/+$/, "")
+    // Only hand the browser a web URL. The controller address is user config,
+    // but the state file is editable, so a file:// URL must not reach
+    // Qt.openUrlExternally.
+    if (!/^https?:\/\//i.test(base)) return ""
+    var ref = String(site && site.ref || "")
+    return /^[A-Za-z0-9_-]{1,128}$/.test(ref)
+      ? base + "/network/" + ref + "/devices"
+      : base
   }
 
   // WAN rate samples for the graph, oldest first: {t, rx, tx}. One entry per

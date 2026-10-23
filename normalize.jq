@@ -10,6 +10,16 @@ def as_number($v): if ($v | type) == "number" then $v else null end;
 # so blank and missing stay blank rather than "null".
 def as_string($v): if ($v | type) == "string" and ($v | length) > 0 then $v else null end;
 
+# Final safety net for a controller that is compromised or merely odd. The
+# fetch already caps whole responses and row counts, but a single field could
+# still be megabytes; cap every string and nested collection before QML sees
+# it. 512 bytes is well above any real name, address, SSID or controller URL.
+def bounded:
+  if type == "string" then .[0:512]
+  elif type == "array" then .[0:1000] | map(bounded)
+  elif type == "object" then with_entries(.value |= bounded)
+  else . end;
+
 # The classic networkconf (one small array, fetched beside stat/health):
 # WAN rows carry the configured DNS the health report omits, and every
 # corporate row carries its subnet for the Networks tab. Null when unfetched.
@@ -476,3 +486,4 @@ def clients_per_device:
       wireless: $hc.wireless
     }
   }
+| bounded

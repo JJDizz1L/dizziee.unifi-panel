@@ -9,6 +9,14 @@
 # Kept in sync with it by hand; the two filters run in different scripts.
 def as_number($v): if ($v | type) == "number" then $v else null end;
 
+# Same final safety net as normalize.jq, kept local because these filters run
+# as separate commands.
+def bounded:
+  if type == "string" then .[0:512]
+  elif type == "array" then .[0:1000] | map(bounded)
+  elif type == "object" then with_entries(.value |= bounded)
+  else . end;
+
 def device_stats:
   if (.stats // null) == null then null else
     {
@@ -46,3 +54,4 @@ def device_stats:
   } end),
   stats: device_stats
 }
+| bounded

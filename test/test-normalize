@@ -451,6 +451,28 @@ else
 fi
 
 echo
+echo "bounded controller data"
+long=$(printf 'x%.0s' {1..2000})
+bounded_out=$(jq -f "$NORMALIZE" \
+  <<<"{\"site\":{\"name\":\"$long\"},\"devices\":[{\"name\":\"$long\",\"model\":\"$long\",\"features\":[\"$long\"]}]}" 2>&1)
+if jq -e '(.site.name | length) == 512
+         and (.devices[0].name | length) == 512
+         and (.devices[0].model | length) == 512
+         and (.devices[0].features[0] | length) == 512' \
+     >/dev/null 2>&1 <<<"$bounded_out"; then
+  printf '  ok    caps controller strings and nested arrays\n'; (( passed++ ))
+else
+  printf '  FAIL  caps controller strings and nested arrays\n'; (( failed++ ))
+fi
+device_bounded=$(jq -f "$PLUGIN_DIR/normalize-device.jq" \
+  <<<"{\"detail\":{\"interfaces\":{\"ports\":[{\"state\":\"$long\"}]}},\"stats\":null}" 2>&1)
+if jq -e '(.detail.ports[0].state | length) == 512' >/dev/null 2>&1 <<<"$device_bounded"; then
+  printf '  ok    caps device detail strings\n'; (( passed++ ))
+else
+  printf '  FAIL  caps device detail strings\n'; (( failed++ ))
+fi
+
+echo
 echo "degenerate input"
 for payload in '{}' '{"devices":[]}' '{"devices":[{}],"clients":[{}]}'; do
   if out=$(jq -f "$NORMALIZE" <<<"$payload" 2>&1); then

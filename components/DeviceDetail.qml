@@ -24,7 +24,7 @@ Column {
 
   function formatPct(value) {
     if (value === null || value === undefined || !isFinite(value)) return "--"
-    return Math.round(value) + "%"
+    return Commons.I18n.formatNumber(Math.round(value)) + "%"
   }
 
   function formatUptime(seconds) {
@@ -32,18 +32,18 @@ Column {
     var days = Math.floor(seconds / 86400)
     var hours = Math.floor((seconds % 86400) / 3600)
     var minutes = Math.floor((seconds % 3600) / 60)
-    if (days > 0) return days + "d " + hours + "h"
-    if (hours > 0) return hours + "h " + minutes + "m"
-    return minutes + "m"
+    if (days > 0) return Commons.I18n.formatNumber(days) + "d " + Commons.I18n.formatNumber(hours) + "h"
+    if (hours > 0) return Commons.I18n.formatNumber(hours) + "h " + Commons.I18n.formatNumber(minutes) + "m"
+    return Commons.I18n.formatNumber(minutes) + "m"
   }
 
   function formatSpeed(mbps) {
     if (mbps === null || mbps === undefined || !isFinite(mbps)) return ""
     if (mbps >= 1000) {
       var gbps = mbps / 1000
-      return (Number.isInteger(gbps) ? gbps : gbps.toFixed(1)) + " Gbit/s"
+      return (Number.isInteger(gbps) ? Commons.I18n.formatNumber(gbps) : Commons.I18n.formatNumber(gbps, 1)) + " Gbit/s"
     }
-    return Math.round(mbps) + " Mbit/s"
+    return Commons.I18n.formatNumber(Math.round(mbps)) + " Mbit/s"
   }
 
   function portStateLabel(state) {
@@ -97,7 +97,7 @@ Column {
   function retriesText(frequencyGHz) {
     var retries = retriesFor(frequencyGHz)
     if (retries === null || retries === undefined || !isFinite(retries)) return ""
-    return (Math.round(retries * 10) / 10) + "% retries"
+    return Commons.I18n.formatNumber(Math.round(retries * 10) / 10, 1) + "% retries"
   }
 
   // Past this sustained retry rate the band is struggling and the figure
@@ -135,7 +135,7 @@ Column {
       if (!st) return ""
       return "CPU " + detail.formatPct(st.cpuPct)
         + "  ·  Memory " + detail.formatPct(st.memPct)
-        + "  ·  Load " + (st.load1 !== null && st.load1 !== undefined ? st.load1.toFixed(2) : "--")
+        + "  ·  Load " + (st.load1 !== null && st.load1 !== undefined ? Commons.I18n.formatNumber(st.load1, 2) : "--")
         + "  ·  Up " + detail.formatUptime(st.uptimeSec)
     }
     color: detail.host.detailColor

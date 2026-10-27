@@ -28,6 +28,15 @@ Panel {
   moduleName: pluginId
   ipcTarget: pluginId
 
+  Commons.Translations {
+    id: strings
+    directory: Qt.resolvedUrl("i18n")
+  }
+
+  function fmtInt(value) {
+    return Commons.I18n.formatNumber(Math.floor(Number(value) || 0))
+  }
+
   // --- state ------------------------------------------------------------
 
   property var devices: []
@@ -165,9 +174,9 @@ Panel {
   // Settings tabs keep the editors inside the panel height: one group at a
   // time, like the main tabs.
   readonly property var settingsTabs: [
-    { key: "DISPLAY", label: "Display" },
-    { key: "POLLING", label: "Polling" },
-    { key: "NOTIFICATIONS", label: "Notifications" }
+    { key: "DISPLAY", label: strings.t("unifi.display") },
+    { key: "POLLING", label: strings.t("unifi.polling") },
+    { key: "NOTIFICATIONS", label: strings.t("unifi.notifications") }
   ]
   property string settingsTab: "DISPLAY"
 
@@ -353,15 +362,15 @@ Panel {
   }
 
   function formatAgo(epochSeconds) {
-    if (!epochSeconds) return "never"
+    if (!epochSeconds) return strings.t("unifi.never")
     var deltaSeconds = Date.now() / 1000 - epochSeconds
     if (deltaSeconds < 90) {
       var s = Math.max(1, Math.round(deltaSeconds))
-      return s + (s === 1 ? " sec ago" : " secs ago")
+      return s === 1 ? strings.t("unifi.secAgo").arg(fmtInt(s)) : strings.t("unifi.secsAgo").arg(fmtInt(s))
     }
-    if (deltaSeconds < 3600) return Math.round(deltaSeconds / 60) + " min ago"
-    if (deltaSeconds < 86400) return Math.round(deltaSeconds / 3600) + " h ago"
-    return Math.round(deltaSeconds / 86400) + " d ago"
+    if (deltaSeconds < 3600) return strings.t("unifi.minAgo").arg(fmtInt(Math.round(deltaSeconds / 60)))
+    if (deltaSeconds < 86400) return strings.t("unifi.hourAgo").arg(fmtInt(Math.round(deltaSeconds / 3600)))
+    return strings.t("unifi.dayAgo").arg(fmtInt(Math.round(deltaSeconds / 86400)))
   }
 
   readonly property int pollIntervalMs: opened ? refreshIntervalMs : watchIntervalMs
@@ -493,12 +502,12 @@ Panel {
   // Panel tabs. Sections below show only on their own tab; the watch-row
   // and strip stay visible whenever the panel has data to show.
   readonly property var tabs: [
-    { key: "OVERVIEW", label: "Overview" },
-    { key: "DEVICES", label: "Devices" },
-    { key: "WIFI", label: "WiFi" },
-    { key: "NETWORKS", label: "Networks" },
-    { key: "VPN", label: "VPN" },
-    { key: "CLIENTS", label: "Clients" }
+    { key: "OVERVIEW", label: strings.t("unifi.overview") },
+    { key: "DEVICES", label: strings.t("unifi.devices") },
+    { key: "WIFI", label: strings.t("unifi.wifi") },
+    { key: "NETWORKS", label: strings.t("unifi.networks") },
+    { key: "VPN", label: strings.t("unifi.vpn") },
+    { key: "CLIENTS", label: strings.t("unifi.clients") }
   ]
   property string activeTab: "OVERVIEW"
 
@@ -532,10 +541,10 @@ Panel {
       if (links[i].up !== true && links[i].state === "down") down++
     }
     if (gateway && gateway.wan && down > 0)
-      return { label: "WAN Down", alarm: true }
+      return { label: strings.t("unifi.wanDown"), alarm: true }
     if (gateway && gateway.wan)
-      return { label: "WAN Online", alarm: false }
-    return { label: "WAN", alarm: false }
+      return { label: strings.t("unifi.wanOnline"), alarm: false }
+    return { label: strings.t("unifi.wan"), alarm: false }
   }
 
   // The API's VPN type enum, shortened. Unknown values pass through raw —
@@ -593,23 +602,23 @@ Panel {
   }
 
   readonly property string tooltipSummary: {
-    if (needsLogin) return "UniFi: not signed in"
+    if (needsLogin) return strings.t("unifi.notSignedIn")
     if (dataIsStale && lastUpdatedAt > 0)
-      return "UniFi: last updated " + formatAgo(lastUpdatedAt / 1000)
+      return strings.t("unifi.lastUpdated").arg(formatAgo(lastUpdatedAt / 1000))
     if (lastError !== "") return "UniFi: " + lastError
-    if (!initialized) return "UniFi: loading…"
+    if (!initialized) return strings.t("unifi.loadingDots")
     if (oversized) {
-      var head = summary.devices + " devices"
+      var head = strings.t("unifi.devicesN").arg(fmtInt(summary.devices))
       if (summary.clients !== null && summary.clients !== undefined)
-        head += " · " + summary.clients + " clients"
+        head += " · " + strings.t("unifi.clientsN").arg(fmtInt(summary.clients))
       if (pendingSummary !== "") head += " · " + pendingSummary
-      return head + " — full list in the UniFi web UI"
+      return head + " " + strings.t("unifi.fullList")
     }
     var parts = []
-    if (summary.offline > 0) parts.push(summary.offline + " offline")
-    parts.push(summary.online + "/" + summary.devices + " devices online")
+    if (summary.offline > 0) parts.push(strings.t("unifi.offlineN").arg(fmtInt(summary.offline)))
+    parts.push(strings.t("unifi.devicesOnline").arg(fmtInt(summary.online)).arg(fmtInt(summary.devices)))
     if (summary.clients !== null && summary.clients !== undefined)
-      parts.push(summary.clients + " clients")
+      parts.push(strings.t("unifi.clientsN").arg(fmtInt(summary.clients)))
     if (pendingSummary !== "") parts.push(pendingSummary)
     return parts.join(" · ")
   }
@@ -1345,13 +1354,13 @@ Panel {
             PanelActionButton {
               visible: !root.settingsMode
               iconText: "\uF013"
-              tooltipText: "Settings"
+              tooltipText: strings.t("unifi.settings")
               foreground: Commons.Color.popups.text
               onClicked: root.openSettings()
             }
 
             Button {
-              text: "Panel"
+              text: strings.t("unifi.panel")
               bordered: true
               fontSize: Style.font.caption
               visible: root.settingsMode
@@ -1359,7 +1368,7 @@ Panel {
             }
 
             Button {
-              text: "Save"
+              text: strings.t("unifi.save")
               bordered: true
               fontSize: Style.font.caption
               visible: root.settingsMode
@@ -1436,7 +1445,7 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "Client count on the bar icon"
+            label: strings.t("unifi.barClients")
             checked: root.draftValue("showBarClients", false) === true
             foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
@@ -1445,7 +1454,7 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "Gateway graphs and health"
+            label: strings.t("unifi.gatewayGraphs")
             checked: root.draftValue("showGatewayStats", true) === true
             foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
@@ -1454,7 +1463,7 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "WiFi tab"
+            label: strings.t("unifi.wifiTab")
             checked: root.draftValue("showWifi", true) === true
             foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
@@ -1463,7 +1472,7 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "Networks tab"
+            label: strings.t("unifi.networksTab")
             checked: root.draftValue("showNetworks", true) === true
             foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
@@ -1472,7 +1481,7 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "VPN tab"
+            label: strings.t("unifi.vpnTab")
             checked: root.draftValue("showVpn", true) === true
             foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
@@ -1481,7 +1490,7 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "Client list with signal"
+            label: strings.t("unifi.clientList")
             checked: root.draftValue("showClients", true) === true
             foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
@@ -1497,7 +1506,7 @@ Panel {
 
           NumberField {
             id: refreshField
-            label: "Refresh while open (seconds)"
+            label: strings.t("unifi.refreshOpen")
             value: Number(root.draftValue("refreshIntervalSec", 180))
             from: 1
             to: 300
@@ -1510,7 +1519,7 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "Background polling"
+            label: strings.t("unifi.backgroundPoll")
             checked: root.draftValue("watch", false) === true
             foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
@@ -1519,7 +1528,7 @@ Panel {
 
           NumberField {
             id: watchField
-            label: "Background poll interval (seconds)"
+            label: strings.t("unifi.backgroundInterval")
             value: Number(root.draftValue("watchIntervalSec", 120))
             from: 30
             to: 3600
@@ -1539,7 +1548,7 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "Device goes offline"
+            label: strings.t("unifi.notifyOffline")
             checked: root.draftValue("notifyOffline", false) === true
             foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
@@ -1548,7 +1557,7 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "Device back online"
+            label: strings.t("unifi.notifyOnline")
             checked: root.draftValue("notifyOnline", false) === true
             foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
@@ -1557,7 +1566,7 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "WAN link down or recovered"
+            label: strings.t("unifi.notifyWan")
             checked: root.draftValue("notifyWan", true) === true
             foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
@@ -1566,7 +1575,7 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "Device waiting for adoption"
+            label: strings.t("unifi.notifyPending")
             checked: root.draftValue("notifyPending", true) === true
             foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
@@ -1575,7 +1584,7 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "Firmware update available"
+            label: strings.t("unifi.notifyFirmware")
             checked: root.draftValue("notifyFirmware", true) === true
             foreground: Commons.Color.popups.text
             fontFamily: Style.font.family
@@ -1584,7 +1593,7 @@ Panel {
 
           NumberField {
             id: cooldownField
-            label: "Minutes before re-notifying"
+            label: strings.t("unifi.notifyCooldown")
             value: Number(root.draftValue("notifyCooldownMin", 30))
             from: 1
             to: 240
@@ -1611,7 +1620,7 @@ Panel {
             textFormat: Text.PlainText
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
-            text: "j/k move  ·  Space toggles  ·  P panel  ·  S saves  ·  Esc closes"
+            text: strings.t("unifi.keys")
             color: root.detailColor
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
@@ -1641,7 +1650,7 @@ Panel {
             textFormat: Text.PlainText
             width: parent.width
             wrapMode: Text.WordWrap
-            text: "Enter your controller's address and an API key from "
+            text: strings.t("unifi.setupPrompt")
               + "Settings → Control Plane → Integrations. The key is stored in the keyring."
             color: root.detailColor
             font.family: Style.font.family
@@ -1649,7 +1658,7 @@ Panel {
           }
 
           Button {
-            text: "Set up"
+            text: strings.t("unifi.setup")
             bordered: true
             fontSize: Style.font.caption
             onClicked: root.signIn()
@@ -1660,7 +1669,7 @@ Panel {
             textFormat: Text.PlainText
             width: parent.width
             wrapMode: Text.WordWrap
-            text: "Or run unifi-login in a terminal."
+            text: strings.t("unifi.setupAlt")
             color: root.detailColor
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
@@ -1684,7 +1693,7 @@ Panel {
           textFormat: Text.PlainText
           width: parent.width
           visible: !root.initialized && root.lastError === "" && !root.settingsMode
-          text: "Loading…"
+          text: strings.t("unifi.loading")
           color: root.detailColor
           font.family: Style.font.family
           font.pixelSize: Style.font.body
@@ -1884,7 +1893,7 @@ Panel {
             text: {
               if (!root.clientsDetail || typeof root.clientsDetail.vpn !== "number") return ""
               var shown = root.clientsDetail.vpnClients ? Math.min(root.clientsDetail.vpnClients.length, 5) : 0
-              return "+" + (root.clientsDetail.vpn - shown) + " more on VPN"
+              return strings.t("unifi.moreVpn").arg(fmtInt(root.clientsDetail.vpn - shown))
             }
             color: root.detailColor
             font.family: Style.font.family
@@ -1954,7 +1963,7 @@ Panel {
             text: {
               if (!root.clientsDetail || typeof root.clientsDetail.count !== "number") return ""
               var shown = root.clientsDetail.list ? Math.min(root.clientsDetail.list.length, 25) : 0
-              return "+" + (root.clientsDetail.count - shown) + " more"
+              return strings.t("unifi.more").arg(fmtInt(root.clientsDetail.count - shown))
             }
             color: root.detailColor
             font.family: Style.font.family
@@ -2013,7 +2022,7 @@ Panel {
               // Evaluated even while hidden, so the null guard repeats here.
               if (!root.pending || typeof root.pending.count !== "number") return ""
               var shown = root.pending.devices ? Math.min(root.pending.devices.length, 5) : 0
-              return "+" + (root.pending.count - shown) + " more"
+              return strings.t("unifi.more").arg(fmtInt(root.pending.count - shown))
             }
             color: root.detailColor
             font.family: Style.font.family
@@ -2117,7 +2126,7 @@ Panel {
             text: {
               if (!root.wifi || typeof root.wifi.count !== "number") return ""
               var shown = root.wifi.networks ? Math.min(root.wifi.networks.length, 8) : 0
-              return "+" + (root.wifi.count - shown) + " more"
+              return strings.t("unifi.more").arg(fmtInt(root.wifi.count - shown))
             }
             color: root.detailColor
             font.family: Style.font.family
@@ -2191,7 +2200,7 @@ Panel {
             text: {
               if (!root.networks || typeof root.networks.count !== "number") return ""
               var shown = root.networks.networks ? Math.min(root.networks.networks.length, 8) : 0
-              return "+" + (root.networks.count - shown) + " more"
+              return strings.t("unifi.more").arg(fmtInt(root.networks.count - shown))
             }
             color: root.detailColor
             font.family: Style.font.family
@@ -2258,7 +2267,7 @@ Panel {
             width: parent.width
             // Evaluated even while hidden, so the null guard comes first.
             visible: root.vpnRows.length > 8
-            text: "+" + (root.vpnRows.length - 8) + " more"
+            text: strings.t("unifi.more").arg(fmtInt(root.vpnRows.length - 8))
             color: root.detailColor
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
@@ -2277,7 +2286,7 @@ Panel {
             && root.activeTab === "DEVICES"
             && !root.settingsMode
             && root.deviceTabDevices.length === 0 && !root.oversized
-          text: "No devices on this site."
+          text: strings.t("unifi.noDevices")
           color: root.detailColor
           font.family: Style.font.family
           font.pixelSize: Style.font.body
@@ -2339,7 +2348,7 @@ Panel {
           }
 
           Button {
-            text: "Open the device list"
+            text: strings.t("unifi.openDeviceList")
             bordered: true
             fontSize: Style.font.caption
             visible: root.deviceListUrl !== ""
@@ -2404,13 +2413,13 @@ Panel {
             // line would freeze until the next poll.
             var tick = root.nowMs
             var tail = (root.networkVersion !== ""
-              ? "   ·   Network " + root.networkVersion : "")
-              + "   ·   R to refresh"
+              ? "   ·   " + strings.t("unifi.networkIs").arg(root.networkVersion) : "")
+              + "   ·   " + strings.t("unifi.refreshHint")
             // While a poll runs only the age gives way; the version and the
             // hint stay put so the line never collapses to a lone word.
-            if (root.refreshing) return "Refreshing…" + tail
+            if (root.refreshing) return strings.t("unifi.refreshing") + tail
             if (root.lastUpdatedAt <= 0) return ""
-            return "Checked " + root.formatAgo(root.lastUpdatedAt / 1000) + tail
+            return strings.t("unifi.checked").arg(root.formatAgo(root.lastUpdatedAt / 1000)) + tail
           }
           color: root.detailColor
           font.family: Style.font.family
@@ -2423,7 +2432,7 @@ Panel {
           visible: !root.settingsMode
           horizontalAlignment: Text.AlignHCenter
           elide: Text.ElideRight
-          text: "Tip: h/l or ←/→ tabs  ·  j/k or ↑/↓ scroll  ·  1–6 jump  ·  S settings  ·  R refresh"
+          text: strings.t("unifi.tip")
           color: root.detailColor
           font.family: Style.font.family
           font.pixelSize: Math.max(8, Math.round(Style.font.caption * 0.9))

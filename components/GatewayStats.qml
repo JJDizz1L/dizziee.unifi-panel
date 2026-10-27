@@ -42,10 +42,10 @@ Column {
   // Bits per second, as the API reports them, in the unit that fits.
   function formatRate(bps) {
     if (bps === null || bps === undefined || !isFinite(bps)) return "--"
-    if (bps >= 1e9) return (bps / 1e9).toFixed(2) + " Gbit/s"
-    if (bps >= 1e6) return (bps / 1e6).toFixed(1) + " Mbit/s"
-    if (bps >= 1e3) return Math.round(bps / 1e3) + " kbit/s"
-    return Math.round(bps) + " bit/s"
+    if (bps >= 1e9) return Commons.I18n.formatNumber(bps / 1e9, 2) + " Gbit/s"
+    if (bps >= 1e6) return Commons.I18n.formatNumber(bps / 1e6, 1) + " Mbit/s"
+    if (bps >= 1e3) return Commons.I18n.formatNumber(Math.round(bps / 1e3)) + " kbit/s"
+    return Commons.I18n.formatNumber(Math.round(bps)) + " bit/s"
   }
 
   function formatUptime(seconds) {
@@ -53,14 +53,14 @@ Column {
     var days = Math.floor(seconds / 86400)
     var hours = Math.floor((seconds % 86400) / 3600)
     var minutes = Math.floor((seconds % 3600) / 60)
-    if (days > 0) return days + "d " + hours + "h"
-    if (hours > 0) return hours + "h " + minutes + "m"
-    return minutes + "m"
+    if (days > 0) return Commons.I18n.formatNumber(days) + "d " + Commons.I18n.formatNumber(hours) + "h"
+    if (hours > 0) return Commons.I18n.formatNumber(hours) + "h " + Commons.I18n.formatNumber(minutes) + "m"
+    return Commons.I18n.formatNumber(minutes) + "m"
   }
 
   function formatPct(value) {
     if (value === null || value === undefined || !isFinite(value)) return "--"
-    return Math.round(value) + "%"
+    return Commons.I18n.formatNumber(Math.round(value)) + "%"
   }
 
   // Download keeps the accent; upload takes the accent's complementary hue so
@@ -90,9 +90,9 @@ Column {
     var spanSec = (pts[pts.length - 1].t - pts[0].t) / 1000
     // The report's buckets are stamped at their start, so twelve hours of
     // them span 11 h 55 min; round to the hour rather than say 11.9.
-    if (usingReport) return Math.max(1, Math.round((spanSec + 300) / 3600)) + " h, 5-min avg"
-    if (spanSec >= 3600) return Math.round(spanSec / 3600 * 10) / 10 + " h"
-    return Math.max(1, Math.round(spanSec / 60)) + " min"
+    if (usingReport) return Commons.I18n.formatNumber(Math.max(1, Math.round((spanSec + 300) / 3600))) + " h, 5-min avg"
+    if (spanSec >= 3600) return Commons.I18n.formatNumber(Math.round(spanSec / 3600 * 10) / 10, 1) + " h"
+    return Commons.I18n.formatNumber(Math.max(1, Math.round(spanSec / 60))) + " min"
   }
 
   // One graph per direction, each on its own scale: upload is usually a
@@ -218,7 +218,7 @@ Column {
     elide: Text.ElideRight
     text: "CPU " + stats.formatPct(stats.latest ? stats.latest.cpuPct : null)
       + "  ·  Memory " + stats.formatPct(stats.latest ? stats.latest.memPct : null)
-      + "  ·  Load " + (stats.latest && stats.latest.load1 !== null ? stats.latest.load1.toFixed(2) : "--")
+      + "  ·  Load " + (stats.latest && stats.latest.load1 !== null ? Commons.I18n.formatNumber(stats.latest.load1, 2) : "--")
       + "  ·  Up " + stats.formatUptime(stats.latest ? stats.latest.uptimeSec : null)
     color: stats.host.detailColor
     font.family: Style.font.family
@@ -321,10 +321,10 @@ Column {
           var l = linkRow.modelData
           var parts = [l.name || l.key]
           if (linkRow.up) {
-            if (l.latencyMs !== null && l.latencyMs !== undefined) parts.push(Math.round(l.latencyMs) + " ms")
+            if (l.latencyMs !== null && l.latencyMs !== undefined) parts.push(Commons.I18n.formatNumber(Math.round(l.latencyMs)) + " ms")
             if (l.uptimeSec) parts.push("up " + stats.formatUptime(l.uptimeSec))
             if (l.availabilityPct !== null && l.availabilityPct !== undefined)
-              parts.push((Math.round(l.availabilityPct * 10) / 10) + "% last 24 h")
+              parts.push(Commons.I18n.formatNumber(Math.round(l.availabilityPct * 10) / 10, 1) + "% last 24 h")
           } else if (linkRow.unused) {
             // Nothing to add: the state column says it all.
           } else if (l.downtimeSec) {

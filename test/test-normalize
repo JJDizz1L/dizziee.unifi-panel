@@ -492,6 +492,18 @@ else
   (( failed++ ))
 fi
 
+# Markup-shaped controller names must pass through as inert data (PlainText
+# sinks render them literally; never executed, never used for URLs).
+if printf '%s' '{"devices":[{"_id":"1","name":"<img src=\"https://example.invalid/t\">","model":"U7 Pro","type":"uap","state":1}]}' \
+  | jq -f "$NORMALIZE" | jq -e '.devices[0].name == "<img src=\"https://example.invalid/t\">"' >/dev/null 2>&1; then
+  printf '  ok    markup device name stays inert\n'
+  (( passed++ ))
+else
+  printf '  FAIL  markup device name stays inert\n'
+  (( failed++ ))
+fi
+
+
 echo
 printf '%d passed, %d failed\n' "$passed" "$failed"
 (( failed == 0 ))

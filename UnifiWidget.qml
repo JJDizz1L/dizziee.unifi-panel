@@ -1135,7 +1135,7 @@ Panel {
         }
         // Same rule as the text glyph: urgent while something is offline.
         color: button.active && button.useActiveColor ? button.activeColor : button.foreground
-        Behavior on color { ColorAnimation { duration: 160 } }
+        Behavior on color { ColorAnimation { duration: Style.duration(160) } }
       }
     }
   }
